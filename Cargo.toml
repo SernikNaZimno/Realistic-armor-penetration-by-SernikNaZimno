@@ -14,6 +14,8 @@ license = "MIT"
 # in the milestone that first uses it.
 [workspace.dependencies]
 rap-domain = { path = "crates/rap-domain" }
+proptest = "1"
+thiserror = "2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

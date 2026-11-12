@@ -4,7 +4,7 @@ A physics simulator of armor penetration in which both the armor and the
 penetrator deform. It uses the Material Point Method (MPM) with
 Johnson–Cook strength and damage and a Mie–Grüneisen equation of state.
 
-Status: **M0 — repository skeleton.** No physics is implemented yet.
+Status: **M1 — domain types and material models.** No solver is implemented yet.
 
 ## Layout
 
