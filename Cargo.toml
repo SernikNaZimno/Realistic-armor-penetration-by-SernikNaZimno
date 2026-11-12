@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+license = "MIT"
+
+# Dependency direction is strictly downwards: front ends -> app -> services -> domain.
+# Every dependency, internal or external, is declared here once and added
+# in the milestone that first uses it.
+[workspace.dependencies]
+rap-domain = { path = "crates/rap-domain" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }

@@ -1,0 +1,11 @@
+[package]
+name = "rap-app"
+description = "Application use cases: run, pause, resume and compare simulations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

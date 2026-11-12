@@ -1,0 +1,11 @@
+[package]
+name = "rap-solver"
+description = "Solver abstraction shared by all numerical back ends."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

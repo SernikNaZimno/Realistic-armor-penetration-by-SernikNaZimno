@@ -1,0 +1,11 @@
+[package]
+name = "rap-ui"
+description = "Desktop user interface: projectile editor, armor editor and simulation view."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "rap-io"
+description = "Scenario files, material libraries, checkpoints and result export."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
