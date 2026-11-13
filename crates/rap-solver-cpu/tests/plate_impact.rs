@@ -9,7 +9,7 @@ use glam::DVec2;
 use rap_analysis::Totals;
 use rap_geometry::fill_rectangle;
 use rap_materials::{EquationOfState, Material, Strength, StrengthModel, library};
-use rap_solver::{Grid, Model, Particle, ParticleSeed, Solver, SolverConfig, Walls};
+use rap_solver::{Grid, Model, Particle, ParticleSeed, Solver, SolverConfig, Symmetry, Walls};
 use rap_solver_cpu::MpmSolver;
 
 const CELL: f64 = 0.5e-3;
@@ -33,6 +33,7 @@ fn colliding_plates(material: Material, speed: f64) -> MpmSolver {
                 velocity: DVec2::new(velocity, 0.0),
                 volume: spacing * spacing,
                 material: 0,
+                body: 0,
             })
     };
     let seeds = plate(INTERFACE - PLATE_THICKNESS, INTERFACE, speed)
@@ -40,6 +41,7 @@ fn colliding_plates(material: Material, speed: f64) -> MpmSolver {
         .collect();
     let model = Model {
         grid,
+        symmetry: Symmetry::Planar,
         walls: Walls::default(),
         config: SolverConfig::default(),
         materials: vec![material],

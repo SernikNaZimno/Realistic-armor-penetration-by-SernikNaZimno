@@ -82,6 +82,8 @@ pub struct Material {
     pub strength: Strength,
     /// Ductile failure criterion.
     pub damage: Damage,
+    /// Tensile pressure at which the material fails by spallation, in Pa.
+    pub spall_strength: f64,
     /// Specific heat capacity, in J/(kg·K).
     pub specific_heat: f64,
     /// Fraction of plastic work converted to heat (Taylor–Quinney
@@ -98,6 +100,7 @@ impl Material {
         self.eos.validate()?;
         self.strength.validate()?;
         self.damage.validate()?;
+        validation::positive("spall_strength", self.spall_strength)?;
         validation::positive("specific_heat", self.specific_heat)?;
         validation::within(
             "taylor_quinney",

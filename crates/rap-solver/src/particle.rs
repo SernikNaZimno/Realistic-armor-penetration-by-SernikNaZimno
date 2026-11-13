@@ -39,7 +39,8 @@ impl Deviator {
     }
 }
 
-/// One material point. Extensive quantities are per unit depth.
+/// One material point. Extensive quantities are per metre of depth in a
+/// planar model and per radian in an axisymmetric one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Particle {
     /// Position, in m.
@@ -48,10 +49,12 @@ pub struct Particle {
     pub velocity: DVec2,
     /// Velocity gradient `∂v_i/∂x_j`, in 1/s.
     pub velocity_gradient: DMat2,
-    /// Mass, in kg per metre of depth.
+    /// Mass, in kg.
     pub mass: f64,
-    /// Current volume, in m³ per metre of depth.
+    /// Current volume, in m³.
     pub volume: f64,
+    /// Body the particle belongs to.
+    pub body: usize,
     /// Index of the particle's material in [`crate::Model::materials`].
     pub material: usize,
     /// Deviatoric stress, in Pa.
@@ -68,6 +71,9 @@ pub struct Particle {
     pub plastic_strain_rate: f64,
     /// Temperature, in K.
     pub temperature: f64,
+    /// Accumulated ductile damage in `[0, 1]`. At one the material has
+    /// failed: it keeps no shear strength and carries no tension.
+    pub damage: f64,
     /// Longitudinal elastic wave speed, in m/s; limits the time step.
     pub sound_speed: f64,
 }
@@ -77,6 +83,12 @@ impl Particle {
     #[must_use]
     pub fn density(&self) -> f64 {
         self.mass / self.volume
+    }
+
+    /// Whether the material point has failed.
+    #[must_use]
+    pub fn is_failed(&self) -> bool {
+        self.damage >= 1.0
     }
 
     /// Normal Cauchy stress along `x`, in Pa, positive in tension.

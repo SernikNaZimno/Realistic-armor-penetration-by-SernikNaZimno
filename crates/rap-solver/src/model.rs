@@ -9,6 +9,9 @@ use thiserror::Error;
 /// The band keeps particle interpolation stencils inside the grid.
 pub const WALL_CELLS: usize = 2;
 
+/// Largest number of distinct bodies in a model.
+pub const MAX_BODIES: usize = 8;
+
 /// Uniform background grid with its origin at `(0, 0)`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Grid {
@@ -60,8 +63,24 @@ pub enum Wall {
     /// Blocks motion into the wall; material may slide along it and separate.
     #[default]
     Frictionless,
+    /// Allows sliding along the wall but no motion towards or away from
+    /// it; this is the condition on a plane or axis of symmetry.
+    Sliding,
     /// Holds touching material at rest.
     Sticky,
+}
+
+/// Geometric interpretation of the two-dimensional model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Symmetry {
+    /// Plane strain: nothing varies along `z`; extensive quantities are per
+    /// metre of depth.
+    #[default]
+    Planar,
+    /// Rotational symmetry about the bottom wall plane: `x` is the axial
+    /// coordinate and `y`, measured from that plane, the radius. Extensive
+    /// quantities are per radian. The bottom wall must be [`Wall::Sliding`].
+    Axisymmetric,
 }
 
 /// The four rigid walls enclosing the grid interior.
@@ -86,6 +105,8 @@ pub struct SolverConfig {
     pub linear_viscosity: f64,
     /// Coefficient of the quadratic artificial bulk viscosity.
     pub quadratic_viscosity: f64,
+    /// Coulomb friction coefficient between different bodies in contact.
+    pub friction: f64,
 }
 
 impl Default for SolverConfig {
@@ -94,6 +115,7 @@ impl Default for SolverConfig {
             cfl: 0.3,
             linear_viscosity: 0.2,
             quadratic_viscosity: 1.5,
+            friction: 0.0,
         }
     }
 }
@@ -105,10 +127,15 @@ pub struct ParticleSeed {
     pub position: DVec2,
     /// Velocity, in m/s.
     pub velocity: DVec2,
-    /// Volume represented by the particle, in m³ per metre of depth.
+    /// Volume represented by the particle: in m³ per metre of depth for
+    /// [`Symmetry::Planar`], in m³ per radian (cross-section area times
+    /// radius) for [`Symmetry::Axisymmetric`].
     pub volume: f64,
     /// Index into [`Model::materials`].
     pub material: usize,
+    /// Body the particle belongs to. Particles of one body move as one
+    /// continuum; different bodies interact through frictional contact.
+    pub body: usize,
 }
 
 /// A complete problem: grid, boundaries, materials and initial particles.
@@ -116,6 +143,8 @@ pub struct ParticleSeed {
 pub struct Model {
     /// Background grid.
     pub grid: Grid,
+    /// Geometric interpretation of the model.
+    pub symmetry: Symmetry,
     /// Rigid walls around the grid interior.
     pub walls: Walls,
     /// Numerical parameters.
@@ -148,6 +177,19 @@ pub enum ModelError {
         /// The invalid material index.
         material: usize,
     },
+    /// The body index of a particle exceeds the supported number of bodies.
+    #[error(
+        "particle {particle} belongs to body {body}; at most {MAX_BODIES} bodies are supported"
+    )]
+    TooManyBodies {
+        /// Index of the particle.
+        particle: usize,
+        /// The invalid body index.
+        body: usize,
+    },
+    /// An axisymmetric model does not have a sliding wall on its axis.
+    #[error("an axisymmetric model needs a sliding bottom wall as its axis")]
+    AxisNotSliding,
     /// A particle starts outside the region enclosed by the walls.
     #[error("particle {particle} starts outside the walls")]
     ParticleOutsideWalls {
@@ -157,6 +199,16 @@ pub enum ModelError {
 }
 
 impl Model {
+    /// Number of bodies, one more than the largest body index in use.
+    #[must_use]
+    pub fn body_count(&self) -> usize {
+        self.seeds
+            .iter()
+            .map(|seed| seed.body + 1)
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Checks the model for internal consistency.
     ///
     /// # Errors
@@ -178,7 +230,11 @@ impl Model {
             "config.quadratic_viscosity",
             self.config.quadratic_viscosity,
         )?;
+        validation::non_negative("config.friction", self.config.friction)?;
         validation::positive("initial_temperature", self.initial_temperature)?;
+        if self.symmetry == Symmetry::Axisymmetric && self.walls.bottom != Wall::Sliding {
+            return Err(ModelError::AxisNotSliding);
+        }
         for material in &self.materials {
             material.validate()?;
         }
@@ -196,6 +252,12 @@ impl Model {
                     material: seed.material,
                 });
             }
+            if seed.body >= MAX_BODIES {
+                return Err(ModelError::TooManyBodies {
+                    particle,
+                    body: seed.body,
+                });
+            }
             let inside = seed.position.cmpge(lower).all() && seed.position.cmple(upper).all();
             if !inside {
                 return Err(ModelError::ParticleOutsideWalls { particle });
@@ -210,7 +272,7 @@ mod tests {
     use glam::DVec2;
     use rap_materials::library;
 
-    use super::{Grid, Model, ModelError, ParticleSeed, SolverConfig, Walls};
+    use super::{Grid, Model, ModelError, ParticleSeed, SolverConfig, Symmetry, Wall, Walls};
 
     fn model() -> Model {
         Model {
@@ -218,6 +280,7 @@ mod tests {
                 cells: [10, 8],
                 cell_size: 1.0e-3,
             },
+            symmetry: Symmetry::Planar,
             walls: Walls::default(),
             config: SolverConfig::default(),
             materials: vec![library::steel_4340()],
@@ -226,6 +289,7 @@ mod tests {
                 velocity: DVec2::ZERO,
                 volume: 2.5e-7,
                 material: 0,
+                body: 0,
             }],
             initial_temperature: 294.0,
         }
@@ -269,6 +333,23 @@ mod tests {
             outside.validate(),
             Err(ModelError::ParticleOutsideWalls { particle: 0 })
         );
+
+        let mut crowded = model();
+        crowded.seeds[0].body = 8;
+        assert_eq!(
+            crowded.validate(),
+            Err(ModelError::TooManyBodies {
+                particle: 0,
+                body: 8
+            })
+        );
+
+        let mut axisymmetric = model();
+        axisymmetric.symmetry = Symmetry::Axisymmetric;
+        assert_eq!(axisymmetric.validate(), Err(ModelError::AxisNotSliding));
+        axisymmetric.walls.bottom = Wall::Sliding;
+        assert_eq!(axisymmetric.validate(), Ok(()));
+        assert_eq!(axisymmetric.body_count(), 1);
 
         let mut unstable = model();
         unstable.config.cfl = 0.0;

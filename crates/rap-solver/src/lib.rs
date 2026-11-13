@@ -4,8 +4,8 @@
 //! exposes the state as [`Particle`]s. Back ends (CPU, GPU) implement
 //! [`Solver`] and are otherwise interchangeable.
 //!
-//! The current formulation is two-dimensional plane strain: all fields are
-//! per unit depth and nothing varies along `z`.
+//! Models are two-dimensional: either plane strain or axisymmetric, see
+//! [`Symmetry`].
 
 pub mod model;
 pub mod particle;
@@ -14,7 +14,10 @@ use std::borrow::Cow;
 
 use thiserror::Error;
 
-pub use model::{Grid, Model, ModelError, ParticleSeed, SolverConfig, WALL_CELLS, Wall, Walls};
+pub use model::{
+    Grid, MAX_BODIES, Model, ModelError, ParticleSeed, SolverConfig, Symmetry, WALL_CELLS, Wall,
+    Walls,
+};
 pub use particle::{Deviator, Particle};
 
 /// Reasons a simulation cannot start or continue.

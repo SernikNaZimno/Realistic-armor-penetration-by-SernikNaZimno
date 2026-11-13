@@ -12,3 +12,4 @@ workspace = true
 
 [dependencies]
 glam.workspace = true
+rap-domain.workspace = true

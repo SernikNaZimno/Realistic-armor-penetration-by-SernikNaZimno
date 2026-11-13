@@ -1,20 +1,21 @@
 //! Taylor impact: a bar strikes a rigid, frictionless wall end-on.
 //!
-//! The bar is modelled in plane strain with a perfectly plastic material,
-//! so the final length can be compared with the one-dimensional estimate of
-//! Wilkins and Guinan (1973),
+//! The bar is perfectly plastic, so its final length can be compared with
+//! the one-dimensional estimate of Wilkins and Guinan (1973),
 //!
 //! ```text
-//! L_f/L_0 = (1 − h)·exp(−ρ·v²/(2·Y)) + h,    h ≈ 0.12,
+//! L_f/L_0 = (1 − h)·exp(−ρ·v²/(2·Y)) + h,    h ≈ 0.12.
 //! ```
 //!
-//! using the plane-strain flow stress `2Y/√3`.
+//! Two versions are run: a cylinder in an axisymmetric model, which is the
+//! classical test, and a flat bar in plane strain, for which the flow stress
+//! is `2Y/√3`.
 
 use glam::DVec2;
 use rap_analysis::{Totals, bounding_box};
 use rap_geometry::fill_rectangle;
 use rap_materials::{EquationOfState, Material, Strength, library};
-use rap_solver::{Grid, Model, ParticleSeed, Solver, SolverConfig, Walls};
+use rap_solver::{Grid, Model, ParticleSeed, Solver, SolverConfig, Symmetry, Wall, Walls};
 use rap_solver_cpu::MpmSolver;
 
 const CELL: f64 = 0.5e-3;
@@ -56,10 +57,12 @@ fn bar_against_left_wall(speed: f64) -> MpmSolver {
         velocity: DVec2::new(-speed, 0.0),
         volume: SPACING * SPACING,
         material: 0,
+        body: 0,
     })
     .collect();
     let model = Model {
         grid,
+        symmetry: Symmetry::Planar,
         walls: Walls::default(),
         config: SolverConfig::default(),
         materials: vec![perfectly_plastic_steel()],
@@ -128,4 +131,86 @@ fn bar_shortens_as_predicted_and_mushrooms_at_the_wall() {
         after.momentum.x >= 0.0,
         "the bar must not keep moving into the wall"
     );
+}
+
+fn cylinder_against_left_wall(speed: f64, length: f64, radius: f64) -> MpmSolver {
+    let grid = Grid {
+        cells: [80, 34],
+        cell_size: CELL,
+    };
+    let (lower, _) = grid.interior();
+    let axis = lower.y;
+    let nose = lower.x + CELL;
+    let seeds = fill_rectangle(
+        DVec2::new(nose, axis),
+        DVec2::new(nose + length, axis + radius),
+        SPACING,
+    )
+    .into_iter()
+    .map(|position| ParticleSeed {
+        position,
+        velocity: DVec2::new(-speed, 0.0),
+        // Per radian: cross-section area times radius.
+        volume: SPACING * SPACING * (position.y - axis),
+        material: 0,
+        body: 0,
+    })
+    .collect();
+    let model = Model {
+        grid,
+        symmetry: Symmetry::Axisymmetric,
+        walls: Walls {
+            bottom: Wall::Sliding,
+            ..Walls::default()
+        },
+        config: SolverConfig::default(),
+        materials: vec![perfectly_plastic_steel()],
+        seeds,
+        initial_temperature: 294.0,
+    };
+    MpmSolver::new(model).expect("the cylinder model is valid")
+}
+
+#[test]
+fn cylinder_shortens_as_predicted_and_conserves_mass_and_energy() {
+    let speed = 200.0;
+    let (length, radius) = (32.0e-3, 4.0e-3);
+    let mut solver = cylinder_against_left_wall(speed, length, radius);
+    let before = Totals::of(&solver.particles());
+    solver
+        .run_until(100.0e-6)
+        .expect("the simulation stays valid");
+    let particles = solver.particles();
+    let after = Totals::of(&particles);
+
+    let (lower, upper) = bounding_box(&particles).expect("the cylinder has particles");
+    let length_ratio = (upper.x - lower.x + SPACING) / length;
+    let axis = 2.0 * CELL;
+    let foot_radius = particles
+        .iter()
+        .filter(|particle| particle.position.x < lower.x + 2.0 * CELL)
+        .map(|particle| particle.position.y - axis + SPACING / 2.0)
+        .fold(0.0, f64::max);
+    // Volume per radian of the deformed cylinder against the initial one.
+    let volume: f64 = particles.iter().map(|particle| particle.volume).sum();
+    let initial_volume = length * radius * radius / 2.0;
+
+    let density = perfectly_plastic_steel().eos.reference_density();
+    let expected_ratio = 0.88 * (-density * speed * speed / (2.0 * YIELD_STRESS)).exp() + 0.12;
+    eprintln!(
+        "cylinder: L_f/L_0 = {length_ratio:.4} (estimate {expected_ratio:.4}), foot radius = \
+         {:.2} x initial, volume = {:.5} x initial, kinetic energy left = {:.3e}, energy \
+         drift = {:.3e}",
+        foot_radius / radius,
+        volume / initial_volume,
+        after.kinetic_energy / before.kinetic_energy,
+        after.total_energy() / before.total_energy() - 1.0,
+    );
+
+    assert!((length_ratio - expected_ratio).abs() < 0.03);
+    assert!(foot_radius > 1.2 * radius);
+    assert!((volume / initial_volume - 1.0).abs() < 0.01);
+    assert!((after.mass / before.mass - 1.0).abs() < 1e-12);
+    assert!(after.kinetic_energy < 0.02 * before.kinetic_energy);
+    assert!((after.total_energy() / before.total_energy() - 1.0).abs() < 1e-3);
 }

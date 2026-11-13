@@ -4,23 +4,43 @@ A physics simulator of armor penetration in which both the armor and the
 penetrator deform. It uses the Material Point Method (MPM) with
 Johnson–Cook strength and damage and a Mie–Grüneisen equation of state.
 
-Status: **M2 — 2D plane-strain CPU solver.** Contact between bodies, damage,
-axisymmetry and the user interface are not implemented yet.
+Status: **M3 — 2D penetration on the CPU.** The solver handles plane-strain
+and axisymmetric models, frictional contact between bodies, ductile damage
+and spall. Scenario files, the command line and the user interface are not
+implemented yet.
 
 ## Validation
 
 The solver is checked against analytical solutions in
-`crates/rap-solver-cpu/tests` (0.5 mm cells, 4 particles per cell):
+`crates/rap-solver-cpu/tests` (4 particles per cell):
 
 | Case | Quantity | Simulated | Reference |
 |---|---|---|---|
 | Steel plates, ±500 m/s | shock pressure | 20.74 GPa | 20.80 GPa (Hugoniot) |
 | | shocked density | 8637.5 kg/m³ | 8643.3 kg/m³ |
-| | total energy drift | −0.16 % | 0 |
+| | total energy drift | −0.13 % | 0 |
 | Steel plates, ±5 m/s | elastic stress | 228.5 MPa | 228.2 MPa |
 | | wave front after 2 µs | 11.4 mm | 11.7 mm |
-| Taylor bar, 200 m/s | final / initial length | 0.872 | 0.862 (Wilkins–Guinan estimate) |
-| | total energy drift | −1.6 % | 0 |
+| Taylor bar, plane strain, 200 m/s | final / initial length | 0.866 | 0.862 (Wilkins–Guinan estimate) |
+| Taylor cylinder, axisymmetric, 200 m/s | final / initial length | 0.859 | 0.842 (Wilkins–Guinan estimate) |
+| | total energy drift | −0.0001 % | 0 |
+| Elastic bar striking an equal bar, 20 m/s | speed handed to the struck bar | 90 % | 100 % (1D wave theory) |
+| | momentum drift | 10⁻¹⁴ | 0 |
+| Tungsten rod, L/D = 10, into steel, 1500 m/s | penetration / rod length | 0.98 | 0.87 (Alekseevskii–Tate, Y_p = 1.5 GPa, R_t = 4.5 GPa) |
+| | crater / rod radius | 1.9 | — |
+
+The long-rod case uses 1 mm cells, so the rod is only four cells in radius;
+the Tate strengths are estimates of the flow stress of the two alloys, not
+fitted values.
+
+## Known limitations
+
+- Contact is detected on the grid, so bodies start to interact about one
+  cell before they touch.
+- Material parameters are literature values that have not been checked
+  against a primary source.
+- Fracture is local: there is no regularisation, so crack patterns depend on
+  the grid.
 
 ## Layout
 
@@ -55,7 +75,7 @@ cargo run -p rap-cli
 - M0 — skeleton, lints, CI
 - M1 — domain and material models
 - M2 — 2D plane-strain CPU solver, validated with Taylor impact and plate impact
-- M3 — 2D penetration: contact, damage, axisymmetry, comparison with Tate and Forrestal models
+- M3 — 2D penetration: contact, damage, spall, axisymmetry, comparison with the Tate model
 - M4 — scenario files and CLI
 - M5 — user interface: projectile editor (APBC, APFSDS), armor editor, viewer
 - M6 — GPU solver and 3D

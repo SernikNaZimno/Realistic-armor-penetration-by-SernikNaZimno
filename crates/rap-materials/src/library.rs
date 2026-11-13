@@ -2,7 +2,8 @@
 //!
 //! Parameters are taken from commonly cited open literature (Johnson & Cook,
 //! 1983 and 1985, for strength and fracture; linear-Hugoniot fits for the
-//! equations of state). They are starting points for qualitative studies and
+//! equations of state; spall strengths are round values inside the ranges
+//! reported for these alloys). They are starting points for qualitative studies and
 //! must be checked against a primary source before any quantitative use.
 
 use rap_domain::MaterialId;
@@ -49,6 +50,7 @@ pub fn steel_4340() -> Material {
             d5: 0.61,
             reference,
         }),
+        spall_strength: 3.5e9,
         specific_heat: 477.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -88,6 +90,7 @@ pub fn tungsten_heavy_alloy() -> Material {
             d5: 0.0,
             reference,
         }),
+        spall_strength: 2.0e9,
         specific_heat: 134.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
