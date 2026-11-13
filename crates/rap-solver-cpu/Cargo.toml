@@ -9,3 +9,14 @@ license.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+glam.workspace = true
+rap-materials.workspace = true
+rap-solver.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+rap-analysis.workspace = true
+rap-geometry.workspace = true
+proptest.workspace = true

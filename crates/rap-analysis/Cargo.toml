@@ -9,3 +9,7 @@ license.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+glam.workspace = true
+rap-solver.workspace = true

@@ -4,7 +4,23 @@ A physics simulator of armor penetration in which both the armor and the
 penetrator deform. It uses the Material Point Method (MPM) with
 Johnson–Cook strength and damage and a Mie–Grüneisen equation of state.
 
-Status: **M1 — domain types and material models.** No solver is implemented yet.
+Status: **M2 — 2D plane-strain CPU solver.** Contact between bodies, damage,
+axisymmetry and the user interface are not implemented yet.
+
+## Validation
+
+The solver is checked against analytical solutions in
+`crates/rap-solver-cpu/tests` (0.5 mm cells, 4 particles per cell):
+
+| Case | Quantity | Simulated | Reference |
+|---|---|---|---|
+| Steel plates, ±500 m/s | shock pressure | 20.74 GPa | 20.80 GPa (Hugoniot) |
+| | shocked density | 8637.5 kg/m³ | 8643.3 kg/m³ |
+| | total energy drift | −0.16 % | 0 |
+| Steel plates, ±5 m/s | elastic stress | 228.5 MPa | 228.2 MPa |
+| | wave front after 2 µs | 11.4 mm | 11.7 mm |
+| Taylor bar, 200 m/s | final / initial length | 0.872 | 0.862 (Wilkins–Guinan estimate) |
+| | total energy drift | −1.6 % | 0 |
 
 ## Layout
 
@@ -38,8 +54,8 @@ cargo run -p rap-cli
 
 - M0 — skeleton, lints, CI
 - M1 — domain and material models
-- M2 — 2D CPU solver, validated with Taylor impact and plate impact
-- M3 — 2D penetration: contact, damage, comparison with Tate and Forrestal models
+- M2 — 2D plane-strain CPU solver, validated with Taylor impact and plate impact
+- M3 — 2D penetration: contact, damage, axisymmetry, comparison with Tate and Forrestal models
 - M4 — scenario files and CLI
 - M5 — user interface: projectile editor (APBC, APFSDS), armor editor, viewer
 - M6 — GPU solver and 3D

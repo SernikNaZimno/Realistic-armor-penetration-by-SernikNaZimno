@@ -13,8 +13,14 @@ license = "MIT"
 # Every dependency, internal or external, is declared here once and added
 # in the milestone that first uses it.
 [workspace.dependencies]
+rap-analysis = { path = "crates/rap-analysis" }
 rap-domain = { path = "crates/rap-domain" }
+rap-geometry = { path = "crates/rap-geometry" }
+rap-materials = { path = "crates/rap-materials" }
+rap-solver = { path = "crates/rap-solver" }
+glam = "0.30"
 proptest = "1"
+rayon = "1"
 thiserror = "2"
 
 [workspace.lints.rust]
@@ -24,3 +30,7 @@ unreachable_pub = "warn"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+
+# The validation tests run real simulations; keep them fast.
+[profile.test]
+opt-level = 2
