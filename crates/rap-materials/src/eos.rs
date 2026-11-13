@@ -1,6 +1,7 @@
 //! Equations of state.
 
 use rap_domain::validation::{self, InvalidParameter};
+use serde::{Deserialize, Serialize};
 
 use crate::EquationOfState;
 
@@ -17,7 +18,8 @@ use crate::EquationOfState;
 ///
 /// The compression branch is singular at `μ = 1/(s − 1)`; states that close
 /// to the limit are outside the validity of a linear Hugoniot.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MieGruneisen {
     /// Density at the reference state, `ρ0`, in kg/m³.
     pub reference_density: f64,
@@ -85,8 +87,9 @@ impl EquationOfState for MieGruneisen {
 }
 
 /// The built-in equations of state.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(tag = "model", rename_all = "snake_case")]
 pub enum Eos {
     /// See [`MieGruneisen`].
     MieGruneisen(MieGruneisen),

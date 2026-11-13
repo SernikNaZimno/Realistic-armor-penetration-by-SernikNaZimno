@@ -61,6 +61,12 @@ pub trait Solver {
     /// elsewhere (for example on a GPU) return an owned copy.
     fn particles(&self) -> Cow<'_, [Particle]>;
 
+    /// Particles that left the simulation through an outflow wall, in the
+    /// state they left in.
+    fn departed(&self) -> Cow<'_, [Particle]> {
+        Cow::Borrowed(&[])
+    }
+
     /// Steps until `end_time` is reached and returns the number of steps.
     ///
     /// # Errors

@@ -46,11 +46,28 @@ pub fn radius(shape: NoseShape, body_radius: f64, distance: f64) -> f64 {
     }
 }
 
+/// Outer radius of a ballistic cap at `distance` behind its tip.
+///
+/// The cap is a tangent ogive of length `cap_length` that meets the body of
+/// radius `body_radius` at its shoulder. `cap_length` must be at least
+/// `body_radius`; a shorter tangent arc cannot reach the axis.
+#[must_use]
+pub fn cap_radius(body_radius: f64, cap_length: f64, distance: f64) -> f64 {
+    if distance >= cap_length {
+        return body_radius;
+    }
+    if distance <= 0.0 {
+        return 0.0;
+    }
+    let arc_radius = (body_radius.powi(2) + cap_length.powi(2)) / (2.0 * body_radius);
+    (arc_radius.powi(2) - (cap_length - distance).powi(2)).sqrt() - (arc_radius - body_radius)
+}
+
 #[cfg(test)]
 mod tests {
     use rap_domain::NoseShape;
 
-    use super::{length, radius};
+    use super::{cap_radius, length, radius};
 
     const BODY_RADIUS: f64 = 0.038;
     const SHAPES: [NoseShape; 4] = [
@@ -110,5 +127,20 @@ mod tests {
         let cone = NoseShape::Cone { half_angle: 0.3 };
         let nose_length = length(cone, BODY_RADIUS);
         assert!((radius(cone, BODY_RADIUS, nose_length / 2.0) - BODY_RADIUS / 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn cap_is_an_ogive_from_a_point_to_the_body_radius() {
+        let cap_length = 0.09;
+        assert!(cap_radius(BODY_RADIUS, cap_length, 0.0).abs() < 1e-12);
+        assert!((cap_radius(BODY_RADIUS, cap_length, cap_length) - BODY_RADIUS).abs() < 1e-12);
+        let samples: Vec<f64> = (0..=50)
+            .map(|step| cap_radius(BODY_RADIUS, cap_length, cap_length * f64::from(step) / 50.0))
+            .collect();
+        assert!(samples.is_sorted());
+        // A cap as long as the body radius is a hemisphere.
+        let middle = cap_radius(BODY_RADIUS, BODY_RADIUS, BODY_RADIUS / 2.0);
+        let hemisphere = radius(NoseShape::Hemisphere, BODY_RADIUS, BODY_RADIUS / 2.0);
+        assert!((middle - hemisphere).abs() < 1e-12);
     }
 }

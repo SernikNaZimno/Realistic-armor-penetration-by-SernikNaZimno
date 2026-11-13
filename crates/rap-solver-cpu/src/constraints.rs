@@ -9,6 +9,7 @@ pub(crate) fn apply_wall(velocity: DVec2, wall: Wall, inward: DVec2) -> DVec2 {
     let normal_speed = velocity.dot(inward);
     match wall {
         Wall::Sticky => DVec2::ZERO,
+        Wall::Outflow => velocity,
         Wall::Sliding => velocity - normal_speed * inward,
         Wall::Frictionless => velocity - normal_speed.min(0.0) * inward,
     }
@@ -98,6 +99,12 @@ mod tests {
             apply_wall(DVec2::new(4.0, -3.0), Wall::Sliding, DVec2::Y),
             DVec2::new(4.0, 0.0)
         );
+    }
+
+    #[test]
+    fn outflow_wall_changes_nothing() {
+        let velocity = DVec2::new(-3.0, 2.0);
+        assert_eq!(apply_wall(velocity, Wall::Outflow, DVec2::X), velocity);
     }
 
     #[test]

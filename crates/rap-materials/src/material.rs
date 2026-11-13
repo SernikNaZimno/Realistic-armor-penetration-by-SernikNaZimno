@@ -2,14 +2,16 @@
 
 use rap_domain::MaterialId;
 use rap_domain::validation::{self, InvalidParameter};
+use serde::{Deserialize, Serialize};
 
 use crate::eos::Eos;
 use crate::johnson_cook::{JohnsonCookDamage, JohnsonCookStrength};
 use crate::{DamageModel, PlasticState, StrengthModel};
 
 /// The built-in strength models.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(tag = "model", rename_all = "snake_case")]
 pub enum Strength {
     /// See [`JohnsonCookStrength`].
     JohnsonCook(JohnsonCookStrength),
@@ -42,8 +44,9 @@ impl StrengthModel for Strength {
 }
 
 /// The built-in damage models.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(tag = "model", rename_all = "snake_case")]
 pub enum Damage {
     /// See [`JohnsonCookDamage`].
     JohnsonCook(JohnsonCookDamage),
@@ -70,7 +73,8 @@ impl DamageModel for Damage {
 }
 
 /// Everything a solver needs to know about one material.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Material {
     /// Key under which the material is referenced by projectiles and armor.
     pub id: MaterialId,

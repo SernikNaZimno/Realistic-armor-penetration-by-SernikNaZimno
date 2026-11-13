@@ -2,11 +2,14 @@
 
 use std::f64::consts::FRAC_PI_2;
 
+use serde::{Deserialize, Serialize};
+
 use crate::material_id::MaterialId;
 use crate::validation::{self, DomainError, InvalidParameter};
 
 /// One plate of an armor array.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArmorLayer {
     /// Material of the plate.
     pub material: MaterialId,
@@ -14,16 +17,19 @@ pub struct ArmorLayer {
     pub thickness: f64,
     /// Empty space in front of this plate, along the normal, in metres.
     /// Non-zero values model spaced armor.
+    #[serde(default)]
     pub gap_before: f64,
 }
 
 /// An array of parallel plates, listed from the struck face inwards.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Armor {
     /// Plates in the order the projectile meets them.
     pub layers: Vec<ArmorLayer>,
     /// Angle between the projectile path and the plate normal, in radians,
     /// in `[0, π/2)`. Zero is a perpendicular hit.
+    #[serde(rename = "obliquity_deg", with = "crate::degrees")]
     pub obliquity: f64,
 }
 

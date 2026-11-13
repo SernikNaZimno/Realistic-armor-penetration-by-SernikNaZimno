@@ -1,6 +1,7 @@
 //! Johnson–Cook strength and fracture models.
 
 use rap_domain::validation::{self, InvalidParameter};
+use serde::{Deserialize, Serialize};
 
 use crate::{DamageModel, PlasticState, StrengthModel};
 
@@ -9,7 +10,8 @@ use crate::{DamageModel, PlasticState, StrengthModel};
 const MIN_FAILURE_STRAIN: f64 = 1.0e-6;
 
 /// Reference conditions that make strain rate and temperature dimensionless.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RateTemperatureReference {
     /// Reference strain rate `ε̇0`, in 1/s.
     pub strain_rate: f64,
@@ -55,7 +57,8 @@ impl RateTemperatureReference {
 /// ```text
 /// σ = (A + B·εⁿ) · (1 + C·ln ε̇*) · (1 − T*ᵐ)
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JohnsonCookStrength {
     /// Elastic shear modulus, in Pa.
     pub shear_modulus: f64,
@@ -114,7 +117,8 @@ impl StrengthModel for JohnsonCookStrength {
 /// ```
 ///
 /// where `σ*` is the stress triaxiality.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JohnsonCookDamage {
     /// Constant `D1`.
     pub d1: f64,

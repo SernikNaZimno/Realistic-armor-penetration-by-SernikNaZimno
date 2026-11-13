@@ -68,6 +68,9 @@ pub enum Wall {
     Sliding,
     /// Holds touching material at rest.
     Sticky,
+    /// No wall: material moves freely and leaves the simulation when it
+    /// crosses the wall plane.
+    Outflow,
 }
 
 /// Geometric interpretation of the two-dimensional model.

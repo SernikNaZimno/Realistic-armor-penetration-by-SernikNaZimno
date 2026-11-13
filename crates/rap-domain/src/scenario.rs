@@ -1,11 +1,14 @@
 //! A complete description of one impact to simulate.
 
+use serde::{Deserialize, Serialize};
+
 use crate::armor::Armor;
 use crate::projectile::Projectile;
 use crate::validation::{self, DomainError};
 
 /// One projectile striking one armor array.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Scenario {
     /// The striking projectile.
     pub projectile: Projectile,

@@ -9,3 +9,15 @@ license.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+rap-domain.workspace = true
+rap-materials.workspace = true
+rap-solver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+glam.workspace = true
+tempfile.workspace = true

@@ -13,3 +13,4 @@ workspace = true
 [dependencies]
 glam.workspace = true
 rap-solver.workspace = true
+serde.workspace = true

@@ -8,6 +8,9 @@
 //! 3. grid-to-particle transfer of velocity and velocity gradient,
 //! 4. the constitutive update of every particle.
 //!
+//! Material that crosses an outflow wall leaves the simulation and is kept,
+//! frozen, as departed particles.
+//!
 //! Every body has its own grid velocity field. Where the fields of several
 //! bodies overlap, a contact condition stops them from interpenetrating and
 //! applies Coulomb friction; bodies are free to separate.
@@ -27,7 +30,7 @@ use glam::{DMat2, DVec2};
 use rap_materials::{EquationOfState, Material};
 use rap_solver::model::count_to_f64;
 use rap_solver::{
-    Deviator, Grid, Model, Particle, Solver, SolverConfig, SolverError, Symmetry, Walls,
+    Deviator, Grid, Model, Particle, Solver, SolverConfig, SolverError, Symmetry, Wall, Walls,
 };
 use rayon::prelude::*;
 
@@ -79,6 +82,8 @@ pub struct MpmSolver {
     config: SolverConfig,
     materials: Vec<Material>,
     particles: Vec<Particle>,
+    /// Particles that crossed an outflow wall.
+    departed: Vec<Particle>,
     time: f64,
     fields: Vec<BodyField>,
     /// Kinetic energy dissipated at each node by contact and walls during
@@ -136,6 +141,7 @@ impl MpmSolver {
             config,
             materials,
             particles,
+            departed: Vec::new(),
             time: 0.0,
             fields: vec![BodyField::new(grid.node_count()); body_count],
             node_heat: vec![0.0; grid.node_count()],
@@ -159,6 +165,27 @@ impl MpmSolver {
             Symmetry::Planar => None,
             Symmetry::Axisymmetric => Some(self.grid.interior().0.y),
         }
+    }
+
+    /// Moves particles that crossed an outflow wall out of the simulation.
+    fn retire_departed(&mut self) {
+        let walls = self.walls;
+        if ![walls.left, walls.right, walls.bottom, walls.top].contains(&Wall::Outflow) {
+            return;
+        }
+        let (lower, upper) = self.grid.interior();
+        let has_left = |particle: &Particle| {
+            let position = particle.position;
+            (walls.left == Wall::Outflow && position.x < lower.x)
+                || (walls.right == Wall::Outflow && position.x > upper.x)
+                || (walls.bottom == Wall::Outflow && position.y < lower.y)
+                || (walls.top == Wall::Outflow && position.y > upper.y)
+        };
+        let (gone, kept) = std::mem::take(&mut self.particles)
+            .into_iter()
+            .partition(has_left);
+        self.particles = kept;
+        self.departed.extend::<Vec<Particle>>(gone);
     }
 
     /// Verifies that every particle is finite and far enough inside the
@@ -368,6 +395,7 @@ impl Solver for MpmSolver {
     }
 
     fn step(&mut self, max_time_step: f64) -> Result<f64, SolverError> {
+        self.retire_departed();
         self.check_particles()?;
         let time_step = self.stable_time_step().min(max_time_step);
         self.particles_to_grid(time_step);
@@ -379,5 +407,9 @@ impl Solver for MpmSolver {
 
     fn particles(&self) -> Cow<'_, [Particle]> {
         Cow::Borrowed(&self.particles)
+    }
+
+    fn departed(&self) -> Cow<'_, [Particle]> {
+        Cow::Borrowed(&self.departed)
     }
 }

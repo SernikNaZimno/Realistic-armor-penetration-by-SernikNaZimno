@@ -2,11 +2,14 @@
 
 use std::f64::consts::FRAC_PI_2;
 
+use serde::{Deserialize, Serialize};
+
 use crate::material_id::{MaterialId, STEEL_4340, TUNGSTEN_HEAVY_ALLOY};
 use crate::validation::{self, InvalidParameter};
 
 /// Shape of the front of a body of revolution.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "shape", rename_all = "snake_case")]
 pub enum NoseShape {
     /// Flat face, no nose section.
     Flat,
@@ -15,6 +18,7 @@ pub enum NoseShape {
     /// Cone with the given half-angle at the tip, in radians.
     Cone {
         /// Angle between the axis and the cone surface, in `(0, π/2)`.
+        #[serde(rename = "half_angle_deg", with = "crate::degrees")]
         half_angle: f64,
     },
     /// Tangent ogive.
@@ -57,9 +61,11 @@ impl NoseShape {
 }
 
 /// Thin hollow windshield fitted over the nose of a full-caliber shot.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BallisticCap {
-    /// Length of the cap ahead of the body shoulder, in metres.
+    /// Length of the cap ahead of the body shoulder, in metres; at least
+    /// half the caliber.
     pub length: f64,
     /// Wall thickness, in metres.
     pub wall_thickness: f64,
@@ -69,7 +75,8 @@ pub struct BallisticCap {
 
 /// Armor-piercing ballistic-capped shot: a full-caliber solid body with an
 /// optional ballistic cap.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApbcProjectile {
     /// Body diameter, in metres.
     pub caliber: f64,
@@ -111,7 +118,12 @@ impl ApbcProjectile {
         validation::positive("body_length", self.body_length)?;
         self.nose.validate()?;
         if let Some(cap) = &self.cap {
-            validation::positive("cap.length", cap.length)?;
+            validation::within(
+                "cap.length",
+                cap.length,
+                &(self.caliber / 2.0..=f64::MAX),
+                "at least half the caliber",
+            )?;
             validation::within(
                 "cap.wall_thickness",
                 cap.wall_thickness,
@@ -125,7 +137,8 @@ impl ApbcProjectile {
 
 /// Armor-piercing fin-stabilized discarding-sabot penetrator: a long rod.
 /// The sabot is discarded before impact and is not modelled.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApfsdsProjectile {
     /// Rod diameter, in metres.
     pub rod_diameter: f64,
@@ -163,8 +176,9 @@ impl ApfsdsProjectile {
 }
 
 /// Any supported projectile.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Projectile {
     /// Full-caliber capped shot.
     Apbc(ApbcProjectile),
@@ -173,6 +187,48 @@ pub enum Projectile {
 }
 
 impl Projectile {
+    /// Radius of the penetrating body, in metres.
+    #[must_use]
+    pub fn body_radius(&self) -> f64 {
+        self.diameter() / 2.0
+    }
+
+    /// Length of the cylindrical part behind the nose, in metres.
+    #[must_use]
+    pub fn body_length(&self) -> f64 {
+        match self {
+            Self::Apbc(shot) => shot.body_length,
+            Self::Apfsds(rod) => rod.rod_length,
+        }
+    }
+
+    /// Shape of the penetrating nose.
+    #[must_use]
+    pub fn nose(&self) -> NoseShape {
+        match self {
+            Self::Apbc(shot) => shot.nose,
+            Self::Apfsds(rod) => rod.nose,
+        }
+    }
+
+    /// Material of the penetrating body.
+    #[must_use]
+    pub fn material(&self) -> &MaterialId {
+        match self {
+            Self::Apbc(shot) => &shot.material,
+            Self::Apfsds(rod) => &rod.material,
+        }
+    }
+
+    /// Ballistic cap, if the projectile has one.
+    #[must_use]
+    pub fn cap(&self) -> Option<&BallisticCap> {
+        match self {
+            Self::Apbc(shot) => shot.cap.as_ref(),
+            Self::Apfsds(_) => None,
+        }
+    }
+
     /// Largest diameter of the penetrating body, in metres.
     #[must_use]
     pub fn diameter(&self) -> f64 {

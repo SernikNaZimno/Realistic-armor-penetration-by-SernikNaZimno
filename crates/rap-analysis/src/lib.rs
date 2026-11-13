@@ -1,9 +1,12 @@
 //! Post-processing: residual velocity, penetration depth, crater profile, energy balance.
 
+pub mod impact;
 pub mod tate;
 
 use glam::DVec2;
 use rap_solver::Particle;
+
+pub use impact::{ImpactSummary, ShotLine, summarize};
 
 /// Conserved quantities summed over a set of particles: per metre of depth
 /// in a planar model, per radian in an axisymmetric one.
