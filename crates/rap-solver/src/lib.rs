@@ -34,6 +34,12 @@ pub enum SolverError {
         /// Simulation time at which it was detected.
         time: f64,
     },
+    /// No graphics adapter that can run the GPU solver was found.
+    #[error("no compatible GPU was found")]
+    NoGpu,
+    /// The GPU back end failed.
+    #[error("GPU solver error: {0}")]
+    Gpu(String),
     /// A particle acquired a non-finite position, usually a sign of
     /// numerical instability.
     #[error("particle {particle} has a non-finite state at t = {time:.3e} s")]

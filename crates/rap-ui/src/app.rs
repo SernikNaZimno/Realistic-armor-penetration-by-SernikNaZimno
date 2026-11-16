@@ -6,6 +6,7 @@ use eframe::egui;
 use glam::DVec2;
 use rap_analysis::{ImpactSummary, bounding_box};
 use rap_app::{Simulation, presets};
+use rap_domain::{Backend, SimulationSettings};
 use rap_io::{IoError, ScenarioFile};
 use rap_solver::{Particle, Symmetry};
 
@@ -28,7 +29,13 @@ struct Preview {
 
 impl Preview {
     fn new(file: &ScenarioFile) -> Result<Self, String> {
-        let simulation = Simulation::new(&file.scenario, &file.settings, &file.materials)
+        // The preview only shows the initial state, so it never needs the
+        // solver chosen for the run.
+        let settings = SimulationSettings {
+            backend: Backend::Cpu,
+            ..file.settings.clone()
+        };
+        let simulation = Simulation::new(&file.scenario, &settings, &file.materials)
             .map_err(|error| error.to_string())?;
         let cell_size = simulation.layout().cell_size;
         let margin = DVec2::splat(VIEW_MARGIN_CELLS * cell_size);
@@ -66,7 +73,8 @@ pub struct App {
     run: Option<Run>,
     field: Field,
     camera: Camera,
-    /// Outcome of the last file operation, shown in the toolbar.
+    /// Outcome of the last file operation or start of a run, shown in the
+    /// toolbar.
     message: Option<String>,
 }
 
@@ -162,8 +170,20 @@ impl App {
         let Ok(preview) = &self.preview else {
             return;
         };
+        let simulation = match Simulation::new(
+            &self.file.scenario,
+            &self.file.settings,
+            &self.file.materials,
+        ) {
+            Ok(simulation) => simulation,
+            Err(error) => {
+                self.message = Some(error.to_string());
+                return;
+            }
+        };
+        self.message = Some(format!("Running on {}", simulation.solver_name()));
         let repaint = ctx.clone();
-        let runner = Runner::start(preview.simulation.clone(), SLICES, move || {
+        let runner = Runner::start(simulation, SLICES, move || {
             repaint.request_repaint();
         });
         self.run = Some(Run {

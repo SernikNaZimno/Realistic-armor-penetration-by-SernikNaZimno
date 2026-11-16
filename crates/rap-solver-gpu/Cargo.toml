@@ -9,3 +9,16 @@ license.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+pollster.workspace = true
+rap-materials.workspace = true
+rap-solver.workspace = true
+wgpu.workspace = true
+
+[dev-dependencies]
+rap-analysis.workspace = true
+rap-geometry.workspace = true
+rap-solver-cpu.workspace = true

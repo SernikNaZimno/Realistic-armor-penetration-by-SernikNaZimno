@@ -3,8 +3,8 @@
 
 use eframe::egui;
 use rap_domain::{
-    ApbcProjectile, ApfsdsProjectile, Armor, ArmorLayer, BallisticCap, MaterialId, NoseShape,
-    ProfilePoint, Projectile, Scenario, SimulationSettings,
+    ApbcProjectile, ApfsdsProjectile, Armor, ArmorLayer, Backend, BallisticCap, MaterialId,
+    NoseShape, ProfilePoint, Projectile, Scenario, SimulationSettings,
 };
 
 use crate::widgets::{degrees, material_picker, millimetres, row, scaled};
@@ -367,7 +367,28 @@ pub(crate) fn armor(ui: &mut egui::Ui, armor: &mut Armor, materials: &[MaterialI
 /// Editor of the numerical settings.
 pub(crate) fn settings(ui: &mut egui::Ui, settings: &mut SimulationSettings) -> bool {
     let mut changed = false;
+    let backend_label = |backend: Backend| match backend {
+        Backend::Cpu => "CPU (double precision)",
+        Backend::Gpu => "GPU (single precision)",
+    };
     egui::Grid::new("settings").num_columns(2).show(ui, |ui| {
+        changed |= row(ui, "Solver", |ui| {
+            let mut picked = false;
+            egui::ComboBox::from_id_salt("backend")
+                .selected_text(backend_label(settings.backend))
+                .show_ui(ui, |ui| {
+                    for backend in [Backend::Cpu, Backend::Gpu] {
+                        picked |= ui
+                            .selectable_value(
+                                &mut settings.backend,
+                                backend,
+                                backend_label(backend),
+                            )
+                            .changed();
+                    }
+                });
+            picked
+        });
         changed |= row(ui, "Cells per radius", |ui| {
             scaled(ui, &mut settings.cells_per_radius, 1.0, 1.0..=64.0, "")
         });

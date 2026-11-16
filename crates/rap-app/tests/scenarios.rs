@@ -319,3 +319,45 @@ fn face_profile_shapes_every_layer() {
     assert!(tip < layout.armor_face - 0.005);
     assert_eq!(assembly.model.validate(), Ok(()));
 }
+
+#[test]
+fn gpu_backend_gives_the_same_outcome_as_the_cpu() {
+    use rap_domain::Backend;
+    use rap_solver::SolverError;
+
+    let scenario = scenario(vec![plate(0.008, 0.0)], 0.0);
+    let cpu_settings = SimulationSettings {
+        cells_per_radius: 3.0,
+        armor_extent_radii: 6.0,
+        ..SimulationSettings::default()
+    };
+    let gpu_settings = SimulationSettings {
+        backend: Backend::Gpu,
+        ..cpu_settings.clone()
+    };
+    let mut gpu = match Simulation::new(&scenario, &gpu_settings, &[]) {
+        Ok(simulation) => simulation,
+        Err(AppError::Solver(SolverError::NoGpu)) => {
+            eprintln!("skipped: no compatible GPU on this machine");
+            return;
+        }
+        Err(error) => panic!("the GPU simulation could not be created: {error}"),
+    };
+    assert!(gpu.solver_name().starts_with("GPU"));
+    let mut cpu = Simulation::new(&scenario, &cpu_settings, &[]).expect("the scenario is valid");
+    assert_eq!(cpu.solver_name(), "CPU");
+
+    let end_time = cpu.layout().end_time;
+    cpu.advance_to(end_time)
+        .expect("the CPU simulation stays valid");
+    gpu.advance_to(end_time)
+        .expect("the GPU simulation stays valid");
+    let (cpu_summary, gpu_summary) = (cpu.summary(), gpu.summary());
+    eprintln!("cpu: {cpu_summary:?}\ngpu: {gpu_summary:?}");
+    assert!(gpu.is_finished());
+    assert_eq!(gpu_summary.perforated, cpu_summary.perforated);
+    assert!((gpu_summary.residual_speed / cpu_summary.residual_speed - 1.0).abs() < 0.02);
+    assert!((gpu_summary.residual_mass_fraction - cpu_summary.residual_mass_fraction).abs() < 0.02);
+    // Material that flew out of the grid is still accounted for.
+    assert!(!gpu.departed().is_empty());
+}

@@ -4,6 +4,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::validation::{self, InvalidParameter};
 
+/// Which solver runs a simulation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Backend {
+    /// The double-precision reference solver on the processor.
+    #[default]
+    Cpu,
+    /// The single-precision solver on the graphics card.
+    Gpu,
+}
+
 /// How finely and how long a scenario is simulated. Every field has a
 /// default, so a scenario file may omit any of them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -24,6 +35,8 @@ pub struct SimulationSettings {
     pub end_time: Option<f64>,
     /// Number of snapshots written over the simulated time.
     pub snapshots: u32,
+    /// Solver to run on.
+    pub backend: Backend,
 }
 
 impl Default for SimulationSettings {
@@ -35,6 +48,7 @@ impl Default for SimulationSettings {
             friction: 0.0,
             end_time: None,
             snapshots: 20,
+            backend: Backend::Cpu,
         }
     }
 }
@@ -78,7 +92,7 @@ impl SimulationSettings {
 
 #[cfg(test)]
 mod tests {
-    use super::SimulationSettings;
+    use super::{Backend, SimulationSettings};
 
     #[test]
     fn defaults_are_valid() {
@@ -111,5 +125,15 @@ mod tests {
             }
         );
         assert!(serde_json::from_str::<SimulationSettings>(r#"{ "cell_size": 1.0 }"#).is_err());
+    }
+
+    #[test]
+    fn backend_is_written_in_lower_case_and_defaults_to_the_processor() {
+        let settings: SimulationSettings =
+            serde_json::from_str(r#"{ "backend": "gpu" }"#).expect("valid settings");
+        assert_eq!(settings.backend, Backend::Gpu);
+        assert_eq!(SimulationSettings::default().backend, Backend::Cpu);
+        let text = serde_json::to_string(&SimulationSettings::default()).expect("serializable");
+        assert!(text.contains(r#""backend":"cpu""#), "{text}");
     }
 }

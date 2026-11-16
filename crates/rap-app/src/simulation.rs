@@ -3,28 +3,32 @@
 use std::borrow::Cow;
 
 use rap_analysis::{ImpactSummary, ShotLine, summarize};
-use rap_domain::{Scenario, SimulationSettings};
+use rap_domain::{Backend, Scenario, SimulationSettings};
 use rap_materials::Material;
 use rap_solver::{Particle, Solver};
 use rap_solver_cpu::MpmSolver;
+use rap_solver_gpu::GpuSolver;
 
 use crate::AppError;
 use crate::assemble::{Layout, assemble};
 
 /// One scenario being simulated.
-#[derive(Debug, Clone)]
 pub struct Simulation {
-    solver: MpmSolver,
+    solver: Box<dyn Solver + Send>,
+    solver_name: String,
     layout: Layout,
     shot: ShotLine,
 }
 
 impl Simulation {
-    /// Prepares the simulation of `scenario`; `custom_materials` are
-    /// searched before the built-in library.
+    /// Prepares the simulation of `scenario` on the solver chosen in
+    /// `settings`; `custom_materials` are searched before the built-in
+    /// library.
     ///
     /// # Errors
-    /// Returns [`AppError`] if the scenario cannot be turned into a model.
+    /// Returns [`AppError`] if the scenario cannot be turned into a model
+    /// or the chosen solver cannot be started. A missing GPU is an error;
+    /// the CPU solver is never substituted silently.
     pub fn new(
         scenario: &Scenario,
         settings: &SimulationSettings,
@@ -32,7 +36,14 @@ impl Simulation {
     ) -> Result<Self, AppError> {
         let assembly = assemble(scenario, settings, custom_materials)?;
         let layout = assembly.layout;
-        let solver = MpmSolver::new(assembly.model)?;
+        let (solver, solver_name): (Box<dyn Solver + Send>, String) = match settings.backend {
+            Backend::Cpu => (Box::new(MpmSolver::new(assembly.model)?), "CPU".to_owned()),
+            Backend::Gpu => {
+                let solver = GpuSolver::new(&assembly.model)?;
+                let name = format!("GPU ({})", solver.adapter_name());
+                (Box::new(solver), name)
+            }
+        };
         let initial_projectile_mass = solver
             .particles()
             .iter()
@@ -49,6 +60,7 @@ impl Simulation {
         };
         Ok(Self {
             solver,
+            solver_name,
             layout,
             shot,
         })
@@ -58,6 +70,12 @@ impl Simulation {
     #[must_use]
     pub fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    /// Description of the solver the simulation runs on.
+    #[must_use]
+    pub fn solver_name(&self) -> &str {
+        &self.solver_name
     }
 
     /// Simulation time reached so far, in s.

@@ -4,10 +4,9 @@ A physics simulator of armor penetration in which both the armor and the
 penetrator deform. It uses the Material Point Method (MPM) with
 Johnson–Cook strength and damage and a Mie–Grüneisen equation of state.
 
-Status: **M5 — desktop application.** Projectile, armor and materials are
-edited in a window, simulated in the background and shown as particles with
-a results panel. The GPU solver and three-dimensional models are not
-implemented yet.
+Status: **M6 — GPU solver.** The two-dimensional solver also runs in wgpu
+compute shaders and is checked against the CPU reference. Three-dimensional
+models are not implemented yet.
 
 ## Usage
 
@@ -33,7 +32,8 @@ cargo run --release -p rap-ui
 - **Materials:** built-in materials can be copied and their equation of
   state, strength, damage and thermal properties edited; copies are stored
   in the scenario file.
-- **Simulation:** resolution, armor half-width, friction and simulated time.
+- **Simulation:** solver (CPU or GPU), resolution, armor half-width,
+  friction and simulated time.
 - **View:** particles coloured by material, damage, plastic strain,
   pressure, temperature or speed; drag to pan, scroll to zoom, double-click
   to reset. An axisymmetric model is shown mirrored about its axis.
@@ -49,6 +49,9 @@ uses.
 lists the built-in materials; `run` simulates a scenario and writes
 `summary.json` and `particles_NNNN.vtk` snapshots (for ParaView) into
 `<scenario name>-results`.
+
+`run --gpu` uses the GPU solver; so does `"backend": "gpu"` in the scenario's
+settings.
 
 A scenario file holds the projectile, the armor layers with their materials,
 thicknesses and gaps, the obliquity and face shape, the impact speed, optional numerical
@@ -85,6 +88,34 @@ The long-rod case uses 1 mm cells, so the rod is only four cells in radius;
 the Tate strengths are estimates of the flow stress of the two alloys, not
 fitted values.
 
+## GPU solver
+
+The GPU solver implements the same scheme as the CPU solver in single
+precision. On identical models the two take the same number of steps and
+agree as follows (`crates/rap-solver-gpu/tests`):
+
+| Case | Quantity | GPU | CPU |
+|---|---|---|---|
+| Steel plates, ±500 m/s | shock pressure | 20.7397 GPa | 20.7397 GPa |
+| Taylor cylinder, 200 m/s | final / initial length | 0.85891 | 0.85890 |
+| Elastic bar collision, 20 m/s | struck bar speed | 17.957 m/s | 17.955 m/s |
+| Tungsten rod into steel, 1500 m/s, 90 µs | depth | 46.290 mm | 46.290 mm |
+
+Time for the first 60 µs of the APFSDS preset on an AMD Radeon integrated
+GPU against a 16-thread CPU:
+
+| Cells per radius | Particles | CPU | GPU | Speed-up |
+|---|---|---|---|---|
+| 4 | 23 672 | 2.7 s | 2.0 s | 1.35 |
+| 10 | 147 953 | 38.9 s | 22.3 s | 1.74 |
+| 16 | 378 728 | 155.9 s | 90.1 s | 1.73 |
+
+The same runs show that the default resolution is coarse: the depth reached
+after 60 µs is 39.8 mm at 4 cells per radius, 49.8 mm at 10 and 53.0 mm at
+16, so results at the default setting are not converged.
+
+See [ADR 0002](docs/adr/0002-gpu-solver.md) for the design.
+
 ## Known limitations
 
 - Contact is detected on the grid, so bodies start to interact about one
@@ -102,6 +133,8 @@ fitted values.
 - The desktop application reassembles the model after every edit, which
   becomes slow at high resolution.
 - A run cannot be paused and resumed from a file.
+- The GPU solver needs a Vulkan, DirectX 12 or Metal adapter and has only
+  been run on one integrated AMD GPU.
 
 ## Layout
 
@@ -112,7 +145,7 @@ fitted values.
 | `rap-geometry` | parametric shapes and particle sampling |
 | `rap-solver` | solver abstraction |
 | `rap-solver-cpu` | reference `f64` MPM solver |
-| `rap-solver-gpu` | `f32` MPM solver in wgpu compute shaders |
+| `rap-solver-gpu` | `f32` MPM solver in wgpu compute shaders, checked against the CPU solver |
 | `rap-analysis` | post-processing of results |
 | `rap-io` | scenarios, checkpoints, export |
 | `rap-app` | use cases shared by the front ends |
@@ -139,5 +172,6 @@ cargo run -p rap-cli
 - M3 — 2D penetration: contact, damage, spall, axisymmetry, comparison with the Tate model
 - M4 — scenario files (JSON), model assembly, CLI, VTK export
 - M5 — desktop application: projectile, armor (layers and face shape) and material editors, particle view, results
-- M6 — GPU solver and 3D
-- M7 — ceramics, STL import, user documentation
+- M6 — GPU solver for the two-dimensional models
+- M7 — three-dimensional models (true oblique impact)
+- M8 — ceramics, STL import, user documentation

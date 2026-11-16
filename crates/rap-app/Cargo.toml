@@ -18,5 +18,6 @@ rap-geometry.workspace = true
 rap-io.workspace = true
 rap-materials.workspace = true
 rap-solver-cpu.workspace = true
+rap-solver-gpu.workspace = true
 rap-solver.workspace = true
 thiserror.workspace = true

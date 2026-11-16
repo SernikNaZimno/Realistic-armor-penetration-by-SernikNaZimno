@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use rap_app::{Simulation, presets};
-use rap_domain::APP_NAME;
+use rap_domain::{APP_NAME, Backend};
 use rap_io::{ScenarioFile, vtk};
 use rap_materials::{EquationOfState, library};
 use rap_solver::Symmetry;
@@ -45,6 +45,9 @@ enum Command {
         /// Do not write particle snapshots, only the summary.
         #[arg(long)]
         no_snapshots: bool,
+        /// Run on the graphics card, whatever the scenario file says.
+        #[arg(long)]
+        gpu: bool,
     },
 }
 
@@ -73,9 +76,14 @@ fn execute(command: Command, output: &mut impl Write) -> Result<()> {
             scenario,
             output_dir,
             no_snapshots,
+            gpu,
         } => {
             let directory = output_dir.unwrap_or_else(|| default_output_directory(&scenario));
-            run(&scenario, &directory, !no_snapshots, output)
+            let options = RunOptions {
+                snapshots: !no_snapshots,
+                force_gpu: gpu,
+            };
+            run(&scenario, &directory, options, output)
         }
     }
 }
@@ -122,8 +130,25 @@ fn default_output_directory(scenario: &Path) -> PathBuf {
     scenario.with_file_name(directory)
 }
 
-fn run(scenario: &Path, directory: &Path, snapshots: bool, output: &mut impl Write) -> Result<()> {
-    let file = ScenarioFile::load(scenario)?;
+/// How a scenario is run.
+#[derive(Debug, Clone, Copy)]
+struct RunOptions {
+    /// Write particle snapshots.
+    snapshots: bool,
+    /// Use the GPU solver regardless of the scenario's settings.
+    force_gpu: bool,
+}
+
+fn run(
+    scenario: &Path,
+    directory: &Path,
+    options: RunOptions,
+    output: &mut impl Write,
+) -> Result<()> {
+    let mut file = ScenarioFile::load(scenario)?;
+    if options.force_gpu {
+        file.settings.backend = Backend::Gpu;
+    }
     let mut simulation = Simulation::new(&file.scenario, &file.settings, &file.materials)
         .with_context(|| format!("cannot simulate {}", scenario.display()))?;
     fs::create_dir_all(directory)
@@ -135,6 +160,7 @@ fn run(scenario: &Path, directory: &Path, snapshots: bool, output: &mut impl Wri
         Symmetry::Planar => "plane strain",
     };
     writeln!(output, "{APP_NAME}")?;
+    writeln!(output, "Solver: {}", simulation.solver_name())?;
     writeln!(
         output,
         "Model: {symmetry}, cell {:.3} mm, {} particles, {:.1} µs to simulate",
@@ -169,7 +195,7 @@ fn run(scenario: &Path, directory: &Path, snapshots: bool, output: &mut impl Wri
             summary.residual_speed,
             summary.armor_failed_fraction * 100.0
         )?;
-        if snapshots {
+        if options.snapshots {
             let path = directory.join(format!("particles_{index:04}.vtk"));
             vtk::save_particles(&path, &simulation.particles())?;
         }
@@ -194,6 +220,7 @@ fn run(scenario: &Path, directory: &Path, snapshots: bool, output: &mut impl Wri
 
     let report = json!({
         "scenario": scenario.display().to_string(),
+        "solver": simulation.solver_name(),
         "model": {
             "symmetry": symmetry,
             "cell_size": layout.cell_size,
@@ -237,6 +264,7 @@ mod tests {
             scenario,
             output_dir,
             no_snapshots,
+            gpu,
         } = cli.command
         else {
             panic!("expected the run command");
@@ -244,6 +272,7 @@ mod tests {
         assert_eq!(scenario, Path::new("shot.json"));
         assert_eq!(output_dir.as_deref(), Some(Path::new("out")));
         assert!(no_snapshots);
+        assert!(!gpu);
         assert!(Cli::try_parse_from(["rap", "preset", "heat"]).is_err());
     }
 
@@ -290,8 +319,10 @@ mod tests {
             scenario: scenario.clone(),
             output_dir: None,
             no_snapshots: false,
+            gpu: false,
         });
         assert!(text.contains("axisymmetric"), "{text}");
+        assert!(text.contains("Solver: CPU"), "{text}");
         assert!(text.contains("Not perforated"), "{text}");
 
         let results = directory.path().join("shot-results");
@@ -321,6 +352,7 @@ mod tests {
             scenario: "does-not-exist.json".into(),
             output_dir: None,
             no_snapshots: true,
+            gpu: false,
         };
         let error = execute(command, &mut output).unwrap_err();
         assert!(error.to_string().contains("does-not-exist.json"));
