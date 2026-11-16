@@ -4,9 +4,10 @@ A physics simulator of armor penetration in which both the armor and the
 penetrator deform. It uses the Material Point Method (MPM) with
 Johnson–Cook strength and damage and a Mie–Grüneisen equation of state.
 
-Status: **M6 — GPU solver.** The two-dimensional solver also runs in wgpu
-compute shaders and is checked against the CPU reference. Three-dimensional
-models are not implemented yet.
+Status: **M7 — three-dimensional models.** Oblique impacts are simulated in
+three dimensions on the CPU; perpendicular impacts stay axisymmetric and can
+also run on the GPU. A GPU port of the three-dimensional solver, ceramics
+and STL import are not implemented yet.
 
 ## Usage
 
@@ -60,9 +61,12 @@ optional custom `materials`. Lengths are in metres, speeds in m/s and angles
 in degrees.
 
 A perpendicular impact is simulated axisymmetrically. An oblique impact is
-simulated in plane strain, where the projectile acts as a slab rather than a
-body of revolution, so its results are indicative only until the 3D solver
-exists.
+simulated in three dimensions, as the half on one side of the plane through
+the shot line and the plate normal; the view shows the cross-section in that
+plane and the snapshots hold all particles. This is many times more
+expensive than a two-dimensional model and runs on the CPU only. Setting
+`"oblique_model": "plane_strain"` selects the old approximation instead, in
+which the projectile acts as a slab: cheap, and only indicative.
 
 ## Validation
 
@@ -87,6 +91,26 @@ The solver is checked against analytical solutions in
 The long-rod case uses 1 mm cells, so the rod is only four cells in radius;
 the Tate strengths are estimates of the flow stress of the two alloys, not
 fitted values.
+
+## Three-dimensional solver
+
+Checked in `crates/rap-solver-cpu/tests/solid.rs`:
+
+| Case | Quantity | 3D | Reference |
+|---|---|---|---|
+| Steel plates, ±500 m/s | shock pressure | 20.82 GPa | 20.80 GPa (Hugoniot) |
+| | total energy drift | −0.29 % | 0 |
+| Taylor cylinder, 200 m/s, quarter model | final / initial length | 0.8654 | 0.8661 (axisymmetric solver) |
+| | total energy drift | −0.0005 % | 0 |
+
+A tungsten rod (8 mm by 48 mm) striking a 12 mm steel plate at 60° and
+1500 m/s, at 3 cells per radius, leaves with 87 % of its mass at 1168 m/s
+in the three-dimensional model (51 088 particles, 61 s) and with 95 % at
+1269 m/s in plane strain (2 288 particles, 1.4 s). There is no reference
+solution for this case; the difference only shows that the plane-strain
+shortcut is not a substitute.
+
+See [ADR 0003](docs/adr/0003-three-dimensional-models.md) for the design.
 
 ## GPU solver
 
@@ -133,6 +157,9 @@ See [ADR 0002](docs/adr/0002-gpu-solver.md) for the design.
 - The desktop application reassembles the model after every edit, which
   becomes slow at high resolution.
 - A run cannot be paused and resumed from a file.
+- Three-dimensional models run on the CPU only, with a serial
+  particle-to-grid transfer; long rods at useful resolution are out of
+  reach until that solver is ported to the GPU.
 - The GPU solver needs a Vulkan, DirectX 12 or Metal adapter and has only
   been run on one integrated AMD GPU.
 
@@ -173,5 +200,6 @@ cargo run -p rap-cli
 - M4 — scenario files (JSON), model assembly, CLI, VTK export
 - M5 — desktop application: projectile, armor (layers and face shape) and material editors, particle view, results
 - M6 — GPU solver for the two-dimensional models
-- M7 — three-dimensional models (true oblique impact)
+- M7 — three-dimensional models on the CPU (true oblique impact)
 - M8 — ceramics, STL import, user documentation
+- M9 — three-dimensional solver on the GPU

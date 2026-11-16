@@ -4,11 +4,13 @@
 //! exposes the state as [`Particle`]s. Back ends (CPU, GPU) implement
 //! [`Solver`] and are otherwise interchangeable.
 //!
-//! Models are two-dimensional: either plane strain or axisymmetric, see
-//! [`Symmetry`].
+//! [`Model`] is two-dimensional, either plane strain or axisymmetric (see
+//! [`Symmetry`]); the [`solid`] module holds the three-dimensional
+//! counterparts.
 
 pub mod model;
 pub mod particle;
+pub mod solid;
 
 use std::borrow::Cow;
 
@@ -19,6 +21,7 @@ pub use model::{
     Walls,
 };
 pub use particle::{Deviator, Particle};
+pub use solid::{Grid3, Model3, Particle3, ParticleSeed3, Solver3, Walls3};
 
 /// Reasons a simulation cannot start or continue.
 #[derive(Debug, Clone, PartialEq, Error)]

@@ -2,22 +2,30 @@
 //!
 //! The projectile flies along `+x`. A perpendicular impact is modelled
 //! axisymmetrically, with the shot line as the axis. An oblique impact has
-//! no axis of symmetry; until a three-dimensional solver exists it is
-//! modelled in plane strain, in which the projectile is a slab of the
-//! profile's thickness rather than a body of revolution.
+//! no axis of symmetry; it is modelled either in three dimensions, as the
+//! half on one side of the plane containing the shot line and the plate
+//! normal, or, much cheaper and only indicative, in plane strain, where the
+//! projectile is a slab of the profile's thickness.
 //!
 //! A face profile displaces the armor face, and every layer behind it,
-//! along the plate normal as a function of the distance from the shot line.
+//! along the plate normal as a function of the distance from the point
+//! where the shot line meets the face.
 //!
 //! All armor layers form one body, so adjacent layers are perfectly bonded.
 //! A ballistic cap is a body of its own.
 
-use glam::DVec2;
-use rap_domain::{Armor, BallisticCap, MaterialId, Projectile, Scenario, SimulationSettings};
-use rap_geometry::{fill_rectangle, nose};
+use glam::{DVec2, DVec3};
+use rap_domain::{
+    Armor, BallisticCap, DomainError, MaterialId, ObliqueModel, Projectile, Scenario,
+    SimulationSettings,
+};
+use rap_geometry::{fill_box, fill_rectangle, nose};
 use rap_materials::{Material, library};
 use rap_solver::model::count_to_f64;
-use rap_solver::{Grid, Model, ParticleSeed, SolverConfig, Symmetry, WALL_CELLS, Wall, Walls};
+use rap_solver::{
+    Grid, Grid3, Model, Model3, ParticleSeed, ParticleSeed3, SolverConfig, Symmetry, WALL_CELLS,
+    Wall, Walls, Walls3,
+};
 
 use crate::AppError;
 
@@ -34,18 +42,51 @@ const STANDOFF_CELLS: f64 = 1.5;
 const MIN_EXIT_CELLS: f64 = 10.0;
 /// Free cells beside the armor for material thrown sideways.
 const SIDE_PAD_CELLS: f64 = 8.0;
+/// Body index of the penetrator in every assembled model.
+const PROJECTILE_BODY: usize = 0;
 /// Initial temperature of all material, in K.
 const INITIAL_TEMPERATURE: f64 = 294.0;
+
+/// How a scenario is represented for the solver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelKind {
+    /// Two-dimensional, rotationally symmetric about the shot line.
+    Axisymmetric,
+    /// Two-dimensional plane strain.
+    PlaneStrain,
+    /// Three-dimensional, one half of a model with a symmetry plane.
+    Solid,
+}
+
+impl ModelKind {
+    /// The kind of model `scenario` gets with `settings`.
+    #[must_use]
+    pub fn of(scenario: &Scenario, settings: &SimulationSettings) -> Self {
+        if scenario.armor.obliquity.abs() < PERPENDICULAR_TOLERANCE {
+            Self::Axisymmetric
+        } else {
+            match settings.oblique_model {
+                ObliqueModel::Solid => Self::Solid,
+                ObliqueModel::PlaneStrain => Self::PlaneStrain,
+            }
+        }
+    }
+}
 
 /// Where things are in an assembled model.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Layout {
-    /// Geometric interpretation of the model.
+    /// How the scenario is represented.
+    pub kind: ModelKind,
+    /// Symmetry of the two-dimensional picture of the model: the model
+    /// itself, or for a solid model its cross-section in the symmetry plane.
     pub symmetry: Symmetry,
     /// Grid cell size, in m.
     pub cell_size: f64,
     /// `y` coordinate of the shot line, in m.
     pub shot_line: f64,
+    /// `z` coordinate of the symmetry plane of a solid model, in m.
+    pub symmetry_plane: f64,
     /// `x` at which the shot line enters the armor, in m.
     pub armor_face: f64,
     /// `x` at which the shot line leaves the armor, in m.
@@ -60,11 +101,20 @@ pub struct Layout {
     pub armor_body: usize,
 }
 
-/// A solver model together with the layout it was built on.
+/// A two-dimensional solver model together with its layout.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Assembly {
     /// The model to hand to a solver.
     pub model: Model,
+    /// Where the projectile and armor are in the model.
+    pub layout: Layout,
+}
+
+/// A three-dimensional solver model together with its layout.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SolidAssembly {
+    /// The model to hand to a solver.
+    pub model: Model3,
     /// Where the projectile and armor are in the model.
     pub layout: Layout,
 }
@@ -208,70 +258,91 @@ fn round_up(length: f64, spacing: f64) -> f64 {
     (length / spacing - 1.0e-9).ceil().max(0.0) * spacing
 }
 
-/// Builds the solver model of `scenario`.
-///
-/// `custom_materials` are searched before the built-in library.
-///
-/// # Errors
-/// Returns [`AppError`] if the scenario or settings are invalid, a material
-/// is unknown, or the grid would be unreasonably large.
-#[expect(clippy::too_many_lines, reason = "one linear sequence of layout steps")]
-pub fn assemble(
-    scenario: &Scenario,
-    settings: &SimulationSettings,
-    custom_materials: &[Material],
-) -> Result<Assembly, AppError> {
-    scenario.validate()?;
-    settings.validate().map_err(rap_domain::DomainError::from)?;
+/// Everything about a scenario's layout that does not depend on the number
+/// of dimensions of the model: sizes, positions along and across the shot
+/// line, materials and bodies.
+struct Plan<'a> {
+    scenario: &'a Scenario,
+    profile: Profile<'a>,
+    stack: Stack,
+    materials: Vec<Material>,
+    body_material: usize,
+    cap_material: Option<usize>,
+    kind: ModelKind,
+    cell_size: f64,
+    spacing: f64,
+    friction: f64,
+    /// Plate normal and in-plane direction, in the `x`–`y` plane.
+    normal: DVec2,
+    along_plate: DVec2,
+    /// Half-width of the armor from the shot line.
+    half_width: f64,
+    /// Rounded overall length of the projectile and the radius it is
+    /// sampled within.
+    length: f64,
+    radial_extent: f64,
+    /// `x` of the projectile's foremost point and of the armor face.
+    tip: f64,
+    armor_face: f64,
+    /// How far the armor reaches from its face: back along `-x`, forward
+    /// along `+x`, and below and above the shot line.
+    reach_back: f64,
+    reach_forward: f64,
+    below: f64,
+    above: f64,
+    path_length: f64,
+    exit_space: f64,
+    shot_line: f64,
+    end_time: f64,
+}
 
-    let projectile = &scenario.projectile;
-    let profile = Profile::new(projectile);
-    let radius = projectile.body_radius();
-    let obliquity = scenario.armor.obliquity;
-    let symmetry = if obliquity.abs() < PERPENDICULAR_TOLERANCE {
-        Symmetry::Axisymmetric
-    } else {
-        Symmetry::Planar
-    };
+impl<'a> Plan<'a> {
+    fn new(
+        scenario: &'a Scenario,
+        settings: &SimulationSettings,
+        custom_materials: &[Material],
+        kind: ModelKind,
+    ) -> Result<Self, AppError> {
+        scenario.validate()?;
+        settings.validate().map_err(DomainError::from)?;
 
-    let cell_size = radius / settings.cells_per_radius;
-    let spacing = cell_size / f64::from(settings.particles_per_cell_edge);
-    let wall = count_to_f64(WALL_CELLS) * cell_size;
-    let pad = PAD_CELLS * cell_size;
+        let projectile = &scenario.projectile;
+        let profile = Profile::new(projectile);
+        let radius = projectile.body_radius();
+        let obliquity = scenario.armor.obliquity;
+        let cell_size = radius / settings.cells_per_radius;
+        let spacing = cell_size / f64::from(settings.particles_per_cell_edge);
+        let wall = count_to_f64(WALL_CELLS) * cell_size;
+        let pad = PAD_CELLS * cell_size;
+        let side_pad = SIDE_PAD_CELLS * cell_size;
 
-    let mut table = MaterialTable::default();
-    let body_material = table.index_of(projectile.material(), custom_materials)?;
-    let cap_material = projectile
-        .cap()
-        .map(|cap: &BallisticCap| table.index_of(&cap.material, custom_materials))
-        .transpose()?;
-    let stack = Stack::new(&scenario.armor, &mut table, custom_materials)?;
+        let mut table = MaterialTable::default();
+        let body_material = table.index_of(projectile.material(), custom_materials)?;
+        let cap_material = projectile
+            .cap()
+            .map(|cap: &BallisticCap| table.index_of(&cap.material, custom_materials))
+            .transpose()?;
+        let stack = Stack::new(&scenario.armor, &mut table, custom_materials)?;
 
-    // Plate normal and in-plane direction; the face passes through the
-    // point where the shot line meets it.
-    let normal = DVec2::new(obliquity.cos(), obliquity.sin());
-    let along_plate = DVec2::new(-obliquity.sin(), obliquity.cos());
-    let half_width = settings.armor_extent_radii * radius;
-    // How far a shaped face reaches towards the projectile and away from it.
-    let (lowest_offset, highest_offset) = scenario.armor.face_offset_range();
-    let (protrusion, recess) = (-lowest_offset, highest_offset);
-    let path_length = stack.thickness / obliquity.cos();
+        let half_width = settings.armor_extent_radii * radius;
+        // How far a shaped face reaches towards the projectile and away.
+        let (lowest_offset, highest_offset) = scenario.armor.face_offset_range();
+        let (protrusion, recess) = (-lowest_offset, highest_offset);
+        let path_length = stack.thickness / obliquity.cos();
 
-    // Positions along the shot line.
-    let length = round_up(profile.length(), spacing);
-    let standoff = STANDOFF_CELLS * cell_size + radius * obliquity.tan() + protrusion;
-    let tilt_reach = half_width * obliquity.sin() + protrusion;
-    let armor_face = (wall + pad + length + standoff).max(wall + pad + tilt_reach);
-    let tip = armor_face - standoff;
-    let exit_space = (0.5 * length).max(MIN_EXIT_CELLS * cell_size);
-    let armor_reach = path_length.max(stack.thickness * obliquity.cos() + tilt_reach) + recess;
-    let right = armor_face + armor_reach + exit_space;
+        // Positions along the shot line.
+        let length = round_up(profile.length(), spacing);
+        let standoff = STANDOFF_CELLS * cell_size + radius * obliquity.tan() + protrusion;
+        let reach_back = half_width * obliquity.sin() + protrusion;
+        let armor_face = (wall + pad + length + standoff).max(wall + pad + reach_back);
+        let reach_forward =
+            path_length.max(stack.thickness * obliquity.cos() + reach_back) + recess;
+        let exit_space = (0.5 * length).max(MIN_EXIT_CELLS * cell_size);
 
-    // Positions across the shot line.
-    let side_pad = SIDE_PAD_CELLS * cell_size;
-    let (shot_line, below, above) = match symmetry {
-        Symmetry::Axisymmetric => (wall, 0.0, half_width),
-        Symmetry::Planar => {
+        // Positions across the shot line.
+        let (shot_line, below, above) = if kind == ModelKind::Axisymmetric {
+            (wall, 0.0, half_width)
+        } else {
             let shape_reach = protrusion + recess;
             let below = (half_width * obliquity.cos() + shape_reach).max(radius);
             let above =
@@ -281,16 +352,166 @@ pub fn assemble(
                 below,
                 above.max(radius),
             )
-        }
-    };
-    let top = shot_line + above + side_pad;
+        };
 
+        Ok(Self {
+            scenario,
+            profile,
+            stack,
+            materials: table.materials,
+            body_material,
+            cap_material,
+            kind,
+            cell_size,
+            spacing,
+            friction: settings.friction,
+            normal: DVec2::new(obliquity.cos(), obliquity.sin()),
+            along_plate: DVec2::new(-obliquity.sin(), obliquity.cos()),
+            half_width,
+            length,
+            radial_extent: round_up(radius, spacing),
+            tip: armor_face - standoff,
+            armor_face,
+            reach_back,
+            reach_forward,
+            below,
+            above,
+            path_length,
+            exit_space,
+            shot_line,
+            end_time: settings
+                .end_time
+                .unwrap_or(2.0 * (length + path_length) / scenario.impact_speed),
+        })
+    }
+
+    fn cap_body(&self) -> Option<usize> {
+        self.cap_material.map(|_| 1)
+    }
+
+    fn armor_body(&self) -> usize {
+        self.cap_body().map_or(1, |cap| cap + 1)
+    }
+
+    /// `x` of the right end of the grid interior and `y` of its top.
+    fn extent(&self) -> DVec2 {
+        let side_pad = SIDE_PAD_CELLS * self.cell_size;
+        DVec2::new(
+            self.armor_face + self.reach_forward + self.exit_space,
+            self.shot_line + self.above + side_pad,
+        )
+    }
+
+    /// Number of grid cells needed to enclose `extent` plus a wall band.
+    fn cells_for(&self, extent: f64) -> usize {
+        cells(extent, self.cell_size) + WALL_CELLS
+    }
+
+    /// Material and body of the projectile at `behind` its foremost point
+    /// and `radial` from the shot line, if it is there.
+    fn projectile_at(&self, behind: f64, radial: f64) -> Option<(usize, usize)> {
+        match (
+            self.profile.part_at(behind, radial)?,
+            self.cap_material,
+            self.cap_body(),
+        ) {
+            (Part::Cap, Some(material), Some(body)) => Some((material, body)),
+            _ => Some((self.body_material, PROJECTILE_BODY)),
+        }
+    }
+
+    /// Material of the armor at `offset` from the point where the shot line
+    /// meets the face, in the `x`–`y` plane, and `out_of_plane` from that
+    /// plane, if a plate is there.
+    fn armor_at(&self, offset: DVec2, out_of_plane: f64) -> Option<usize> {
+        let in_plane = offset.dot(self.along_plate);
+        if in_plane.abs() > self.half_width || out_of_plane.abs() > self.half_width {
+            return None;
+        }
+        let lateral = in_plane.hypot(out_of_plane);
+        let depth = offset.dot(self.normal) - self.scenario.armor.face_offset(lateral);
+        self.stack.material_at(depth)
+    }
+
+    /// Lower and upper corners, in the `x`–`y` plane, of a box containing
+    /// the armor.
+    fn armor_box(&self) -> (DVec2, DVec2) {
+        (
+            DVec2::new(
+                self.armor_face - round_up(self.reach_back, self.spacing),
+                self.shot_line - round_up(self.below, self.spacing),
+            ),
+            DVec2::new(
+                self.armor_face + self.reach_forward,
+                self.shot_line + self.above,
+            ),
+        )
+    }
+
+    /// Lower and upper corners, in the `x`–`y` plane, of a box containing
+    /// the projectile.
+    fn projectile_box(&self) -> (DVec2, DVec2) {
+        let lower_y = if self.kind == ModelKind::Axisymmetric {
+            self.shot_line
+        } else {
+            self.shot_line - self.radial_extent
+        };
+        (
+            DVec2::new(self.tip - self.length, lower_y),
+            DVec2::new(self.tip, self.shot_line + self.radial_extent),
+        )
+    }
+
+    fn config(&self) -> SolverConfig {
+        SolverConfig {
+            friction: self.friction,
+            ..SolverConfig::default()
+        }
+    }
+
+    fn layout(&self, symmetry_plane: f64) -> Layout {
+        Layout {
+            kind: self.kind,
+            symmetry: if self.kind == ModelKind::Axisymmetric {
+                Symmetry::Axisymmetric
+            } else {
+                Symmetry::Planar
+            },
+            cell_size: self.cell_size,
+            shot_line: self.shot_line,
+            symmetry_plane,
+            armor_face: self.armor_face,
+            armor_back: self.armor_face + self.path_length,
+            end_time: self.end_time,
+            projectile_body: PROJECTILE_BODY,
+            cap_body: self.cap_body(),
+            armor_body: self.armor_body(),
+        }
+    }
+}
+
+/// Builds the two-dimensional solver model of `scenario`: axisymmetric for
+/// a perpendicular impact, plane strain for an oblique one.
+///
+/// `custom_materials` are searched before the built-in library.
+///
+/// # Errors
+/// Returns [`AppError`] if the scenario or settings are invalid, a material
+/// is unknown, or the grid would be unreasonably large.
+pub fn assemble(
+    scenario: &Scenario,
+    settings: &SimulationSettings,
+    custom_materials: &[Material],
+) -> Result<Assembly, AppError> {
+    let kind = match ModelKind::of(scenario, settings) {
+        ModelKind::Solid => ModelKind::PlaneStrain,
+        kind => kind,
+    };
+    let plan = Plan::new(scenario, settings, custom_materials, kind)?;
+    let extent = plan.extent();
     let grid = Grid {
-        cells: [
-            cells(right, cell_size) + WALL_CELLS,
-            cells(top, cell_size) + WALL_CELLS,
-        ],
-        cell_size,
+        cells: [plan.cells_for(extent.x), plan.cells_for(extent.y)],
+        cell_size: plan.cell_size,
     };
     if grid.node_count() > MAX_NODES {
         return Err(AppError::GridTooLarge {
@@ -298,71 +519,43 @@ pub fn assemble(
         });
     }
 
-    let volume = |position: DVec2| match symmetry {
-        Symmetry::Planar => spacing * spacing,
+    let (spacing, shot_line) = (plan.spacing, plan.shot_line);
+    let volume = |position: DVec2| match kind {
         // Per radian: cross-section area times radius.
-        Symmetry::Axisymmetric => spacing * spacing * (position.y - shot_line),
-    };
-
-    let projectile_body = 0;
-    let cap_body = cap_material.map(|_| 1);
-    let armor_body = cap_body.map_or(1, |cap| cap + 1);
-
-    let radial_extent = round_up(radius, spacing);
-    let projectile_lower = match symmetry {
-        Symmetry::Axisymmetric => shot_line,
-        Symmetry::Planar => shot_line - radial_extent,
+        ModelKind::Axisymmetric => spacing * spacing * (position.y - shot_line),
+        _ => spacing * spacing,
     };
     let velocity = DVec2::new(scenario.impact_speed, 0.0);
-    let projectile_seeds = fill_rectangle(
-        DVec2::new(tip - length, projectile_lower),
-        DVec2::new(tip, shot_line + radial_extent),
-        spacing,
-    )
-    .into_iter()
-    .filter_map(|position| {
-        let part = profile.part_at(tip - position.x, (position.y - shot_line).abs())?;
-        let (material, body) = match (part, cap_material, cap_body) {
-            (Part::Cap, Some(material), Some(body)) => (material, body),
-            _ => (body_material, projectile_body),
-        };
-        Some(ParticleSeed {
-            position,
-            velocity,
-            volume: volume(position),
-            material,
-            body,
-        })
-    });
-
-    let face_point = DVec2::new(armor_face, shot_line);
-    let armor_seeds = fill_rectangle(
-        DVec2::new(
-            armor_face - round_up(tilt_reach, spacing),
-            shot_line - round_up(below, spacing),
-        ),
-        DVec2::new(right - exit_space, shot_line + above),
-        spacing,
-    )
-    .into_iter()
-    .filter_map(|position| {
-        let offset = position - face_point;
-        let lateral = offset.dot(along_plate);
-        if lateral.abs() > half_width {
-            return None;
-        }
-        let depth = offset.dot(normal) - scenario.armor.face_offset(lateral);
-        let material = stack.material_at(depth)?;
-        Some(ParticleSeed {
-            position,
-            velocity: DVec2::ZERO,
-            volume: volume(position),
-            material,
-            body: armor_body,
-        })
-    });
-
+    let (lower, upper) = plan.projectile_box();
+    let projectile_seeds = fill_rectangle(lower, upper, spacing)
+        .into_iter()
+        .filter_map(|position| {
+            let (material, body) =
+                plan.projectile_at(plan.tip - position.x, (position.y - shot_line).abs())?;
+            Some(ParticleSeed {
+                position,
+                velocity,
+                volume: volume(position),
+                material,
+                body,
+            })
+        });
+    let face_point = DVec2::new(plan.armor_face, shot_line);
+    let (lower, upper) = plan.armor_box();
+    let armor_seeds = fill_rectangle(lower, upper, spacing)
+        .into_iter()
+        .filter_map(|position| {
+            let material = plan.armor_at(position - face_point, 0.0)?;
+            Some(ParticleSeed {
+                position,
+                velocity: DVec2::ZERO,
+                volume: volume(position),
+                material,
+                body: plan.armor_body(),
+            })
+        });
     let seeds = projectile_seeds.chain(armor_seeds).collect();
+
     // Nothing surrounds the impact: whatever reaches the edge of the grid
     // flies on and is no longer simulated. Only the axis is a real boundary.
     let open = Walls {
@@ -371,38 +564,120 @@ pub fn assemble(
         bottom: Wall::Outflow,
         top: Wall::Outflow,
     };
-    let walls = match symmetry {
-        Symmetry::Axisymmetric => Walls {
-            bottom: Wall::Sliding,
-            ..open
-        },
-        Symmetry::Planar => open,
+    let (symmetry, walls) = if kind == ModelKind::Axisymmetric {
+        (
+            Symmetry::Axisymmetric,
+            Walls {
+                bottom: Wall::Sliding,
+                ..open
+            },
+        )
+    } else {
+        (Symmetry::Planar, open)
     };
+    let layout = plan.layout(0.0);
     let model = Model {
         grid,
         symmetry,
         walls,
-        config: SolverConfig {
-            friction: settings.friction,
-            ..SolverConfig::default()
-        },
-        materials: table.materials,
+        config: plan.config(),
+        materials: plan.materials,
         seeds,
         initial_temperature: INITIAL_TEMPERATURE,
     };
-    let end_time = settings
-        .end_time
-        .unwrap_or(2.0 * (length + path_length) / scenario.impact_speed);
-    let layout = Layout {
-        symmetry,
-        cell_size,
-        shot_line,
-        armor_face,
-        armor_back: armor_face + path_length,
-        end_time,
-        projectile_body,
-        cap_body,
-        armor_body,
-    };
     Ok(Assembly { model, layout })
+}
+
+/// Builds the three-dimensional solver model of `scenario`.
+///
+/// The model is the half with `z` above the symmetry plane, which contains
+/// the shot line and the plate normal. The projectile is a body of
+/// revolution about the shot line; the armor extends the same half-width
+/// out of the plane as within it.
+///
+/// # Errors
+/// Returns [`AppError`] if the scenario or settings are invalid, a material
+/// is unknown, or the grid would be unreasonably large.
+pub fn assemble_solid(
+    scenario: &Scenario,
+    settings: &SimulationSettings,
+    custom_materials: &[Material],
+) -> Result<SolidAssembly, AppError> {
+    let plan = Plan::new(scenario, settings, custom_materials, ModelKind::Solid)?;
+    let extent = plan.extent();
+    let symmetry_plane = count_to_f64(WALL_CELLS) * plan.cell_size;
+    let depth = symmetry_plane + plan.half_width + SIDE_PAD_CELLS * plan.cell_size;
+    let grid = Grid3 {
+        cells: [
+            plan.cells_for(extent.x),
+            plan.cells_for(extent.y),
+            plan.cells_for(depth),
+        ],
+        cell_size: plan.cell_size,
+    };
+    if grid.node_count() > MAX_NODES {
+        return Err(AppError::GridTooLarge {
+            nodes: grid.node_count(),
+        });
+    }
+
+    let (spacing, shot_line) = (plan.spacing, plan.shot_line);
+    let volume = spacing.powi(3);
+    let velocity = DVec3::new(scenario.impact_speed, 0.0, 0.0);
+    let slab = |corners: (DVec2, DVec2), thickness: f64| {
+        (
+            corners.0.extend(symmetry_plane),
+            corners
+                .1
+                .extend(symmetry_plane + round_up(thickness, spacing)),
+        )
+    };
+
+    let (lower, upper) = slab(plan.projectile_box(), plan.radial_extent);
+    let projectile_seeds = fill_box(lower, upper, spacing, |_| true)
+        .into_iter()
+        .filter_map(|position| {
+            let radial = (position.y - shot_line).hypot(position.z - symmetry_plane);
+            let (material, body) = plan.projectile_at(plan.tip - position.x, radial)?;
+            Some(ParticleSeed3 {
+                position,
+                velocity,
+                volume,
+                material,
+                body,
+            })
+        });
+    let face_point = DVec2::new(plan.armor_face, shot_line);
+    let (lower, upper) = slab(plan.armor_box(), plan.half_width);
+    let armor_seeds = fill_box(lower, upper, spacing, |_| true)
+        .into_iter()
+        .filter_map(|position| {
+            let material = plan.armor_at(
+                position.truncate() - face_point,
+                position.z - symmetry_plane,
+            )?;
+            Some(ParticleSeed3 {
+                position,
+                velocity: DVec3::ZERO,
+                volume,
+                material,
+                body: plan.armor_body(),
+            })
+        });
+    let seeds = projectile_seeds.chain(armor_seeds).collect();
+
+    let layout = plan.layout(symmetry_plane);
+    let model = Model3 {
+        grid,
+        // Open on every side except the symmetry plane.
+        walls: Walls3 {
+            low: [Wall::Outflow, Wall::Outflow, Wall::Sliding],
+            high: [Wall::Outflow; 3],
+        },
+        config: plan.config(),
+        materials: plan.materials,
+        seeds,
+        initial_temperature: INITIAL_TEMPERATURE,
+    };
+    Ok(SolidAssembly { model, layout })
 }

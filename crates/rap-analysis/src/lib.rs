@@ -6,7 +6,7 @@ pub mod tate;
 use glam::DVec2;
 use rap_solver::Particle;
 
-pub use impact::{ImpactSummary, ShotLine, summarize};
+pub use impact::{ImpactSummary, ShotLine, Tracer, summarize, summarize_tracers};
 
 /// Conserved quantities summed over a set of particles: per metre of depth
 /// in a planar model, per radian in an axisymmetric one.

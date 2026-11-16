@@ -2,22 +2,62 @@
 
 use std::borrow::Cow;
 
-use rap_analysis::{ImpactSummary, ShotLine, summarize};
+use glam::{DMat2, DVec2};
+use rap_analysis::{ImpactSummary, ShotLine, Tracer, summarize_tracers};
 use rap_domain::{Backend, Scenario, SimulationSettings};
 use rap_materials::Material;
-use rap_solver::{Particle, Solver};
-use rap_solver_cpu::MpmSolver;
+use rap_solver::{Deviator, Particle, Particle3, Solver, Solver3};
+use rap_solver_cpu::{MpmSolver, MpmSolver3};
 use rap_solver_gpu::GpuSolver;
 
 use crate::AppError;
-use crate::assemble::{Layout, assemble};
+use crate::assemble::{Layout, ModelKind, assemble, assemble_solid};
+
+/// The solver behind a simulation.
+enum Engine {
+    /// A two-dimensional model.
+    Flat(Box<dyn Solver + Send>),
+    /// A three-dimensional model.
+    Solid(Box<dyn Solver3 + Send>),
+}
 
 /// One scenario being simulated.
 pub struct Simulation {
-    solver: Box<dyn Solver + Send>,
+    engine: Engine,
     solver_name: String,
     layout: Layout,
     shot: ShotLine,
+}
+
+/// The particle of the two-dimensional picture that shows a particle of a
+/// solid model lying in its symmetry plane.
+fn in_plane(particle: &Particle3) -> Particle {
+    let gradient = particle.velocity_gradient;
+    Particle {
+        position: particle.position.truncate(),
+        velocity: particle.velocity.truncate(),
+        velocity_gradient: DMat2::from_cols(
+            DVec2::new(gradient.x_axis.x, gradient.x_axis.y),
+            DVec2::new(gradient.y_axis.x, gradient.y_axis.y),
+        ),
+        mass: particle.mass,
+        volume: particle.volume,
+        body: particle.body,
+        material: particle.material,
+        deviator: Deviator {
+            xx: particle.deviator.x_axis.x,
+            yy: particle.deviator.y_axis.y,
+            xy: particle.deviator.y_axis.x,
+        },
+        pressure: particle.pressure,
+        viscous_pressure: particle.viscous_pressure,
+        specific_energy: particle.specific_energy,
+        plastic_strain: particle.plastic_strain,
+        plastic_strain_rate: particle.plastic_strain_rate,
+        temperature: particle.temperature,
+        damage: particle.damage,
+        sound_speed: particle.sound_speed,
+    }
 }
 
 impl Simulation {
@@ -34,36 +74,52 @@ impl Simulation {
         settings: &SimulationSettings,
         custom_materials: &[Material],
     ) -> Result<Self, AppError> {
-        let assembly = assemble(scenario, settings, custom_materials)?;
-        let layout = assembly.layout;
-        let (solver, solver_name): (Box<dyn Solver + Send>, String) = match settings.backend {
-            Backend::Cpu => (Box::new(MpmSolver::new(assembly.model)?), "CPU".to_owned()),
-            Backend::Gpu => {
-                let solver = GpuSolver::new(&assembly.model)?;
-                let name = format!("GPU ({})", solver.adapter_name());
-                (Box::new(solver), name)
+        let (engine, solver_name, layout) = match ModelKind::of(scenario, settings) {
+            ModelKind::Solid => {
+                if settings.backend == Backend::Gpu {
+                    return Err(AppError::SolidOnGpu);
+                }
+                let assembly = assemble_solid(scenario, settings, custom_materials)?;
+                let solver = MpmSolver3::new(assembly.model)?;
+                (
+                    Engine::Solid(Box::new(solver)),
+                    "CPU".to_owned(),
+                    assembly.layout,
+                )
+            }
+            ModelKind::Axisymmetric | ModelKind::PlaneStrain => {
+                let assembly = assemble(scenario, settings, custom_materials)?;
+                let (solver, name): (Box<dyn Solver + Send>, String) = match settings.backend {
+                    Backend::Cpu => (Box::new(MpmSolver::new(assembly.model)?), "CPU".to_owned()),
+                    Backend::Gpu => {
+                        let solver = GpuSolver::new(&assembly.model)?;
+                        let name = format!("GPU ({})", solver.adapter_name());
+                        (Box::new(solver), name)
+                    }
+                };
+                (Engine::Flat(solver), name, assembly.layout)
             }
         };
-        let initial_projectile_mass = solver
-            .particles()
-            .iter()
-            .filter(|particle| particle.body == layout.projectile_body)
-            .map(|particle| particle.mass)
-            .sum();
-        let shot = ShotLine {
-            armor_face: layout.armor_face,
-            armor_back: layout.armor_back,
-            projectile_body: layout.projectile_body,
-            armor_body: layout.armor_body,
-            initial_projectile_mass,
-            impact_speed: scenario.impact_speed,
-        };
-        Ok(Self {
-            solver,
+        let mut simulation = Self {
+            engine,
             solver_name,
             layout,
-            shot,
-        })
+            shot: ShotLine {
+                armor_face: layout.armor_face,
+                armor_back: layout.armor_back,
+                projectile_body: layout.projectile_body,
+                armor_body: layout.armor_body,
+                initial_projectile_mass: 0.0,
+                impact_speed: scenario.impact_speed,
+            },
+        };
+        simulation.shot.initial_projectile_mass = simulation
+            .tracers()
+            .iter()
+            .filter(|tracer| tracer.body == layout.projectile_body)
+            .map(|tracer| tracer.mass)
+            .sum();
+        Ok(simulation)
     }
 
     /// Where the projectile and armor are in the model.
@@ -78,10 +134,22 @@ impl Simulation {
         &self.solver_name
     }
 
+    /// Number of particles still being simulated.
+    #[must_use]
+    pub fn particle_count(&self) -> usize {
+        match &self.engine {
+            Engine::Flat(solver) => solver.particles().len(),
+            Engine::Solid(solver) => solver.particles().len(),
+        }
+    }
+
     /// Simulation time reached so far, in s.
     #[must_use]
     pub fn time(&self) -> f64 {
-        self.solver.time()
+        match &self.engine {
+            Engine::Flat(solver) => solver.time(),
+            Engine::Solid(solver) => solver.time(),
+        }
     }
 
     /// Whether the time set in the layout has been reached.
@@ -95,27 +163,76 @@ impl Simulation {
     /// # Errors
     /// Returns [`AppError::Solver`] if the solver state has become invalid.
     pub fn advance_to(&mut self, time: f64) -> Result<usize, AppError> {
-        Ok(self.solver.run_until(time)?)
+        Ok(match &mut self.engine {
+            Engine::Flat(solver) => solver.run_until(time)?,
+            Engine::Solid(solver) => solver.run_until(time)?,
+        })
     }
 
-    /// Current state of every particle still being simulated.
+    /// The particles of a solid model that lie against its symmetry plane,
+    /// as a two-dimensional picture.
+    fn cross_section(&self, particles: &[Particle3]) -> Vec<Particle> {
+        let limit = self.layout.symmetry_plane + self.layout.cell_size / 2.0;
+        particles
+            .iter()
+            .filter(|particle| particle.position.z < limit)
+            .map(in_plane)
+            .collect()
+    }
+
+    /// Two-dimensional picture of the particles still being simulated: the
+    /// model itself, or for a solid model its cross-section in the
+    /// symmetry plane.
     #[must_use]
     pub fn particles(&self) -> Cow<'_, [Particle]> {
-        self.solver.particles()
+        match &self.engine {
+            Engine::Flat(solver) => solver.particles(),
+            Engine::Solid(solver) => Cow::Owned(self.cross_section(&solver.particles())),
+        }
     }
 
-    /// Particles that flew out of the simulated region, in the state they
-    /// left in.
+    /// Two-dimensional picture of the particles that flew out of the
+    /// simulated region, in the state they left in.
     #[must_use]
     pub fn departed(&self) -> Cow<'_, [Particle]> {
-        self.solver.departed()
+        match &self.engine {
+            Engine::Flat(solver) => solver.departed(),
+            Engine::Solid(solver) => Cow::Owned(self.cross_section(&solver.departed())),
+        }
+    }
+
+    /// All particles of a solid model still being simulated; `None` for a
+    /// two-dimensional model.
+    #[must_use]
+    pub fn solid_particles(&self) -> Option<Cow<'_, [Particle3]>> {
+        match &self.engine {
+            Engine::Flat(_) => None,
+            Engine::Solid(solver) => Some(solver.particles()),
+        }
+    }
+
+    /// Every particle, simulated or departed, reduced to what the impact
+    /// summary needs.
+    fn tracers(&self) -> Vec<Tracer> {
+        match &self.engine {
+            Engine::Flat(solver) => solver
+                .particles()
+                .iter()
+                .chain(solver.departed().iter())
+                .map(Tracer::from)
+                .collect(),
+            Engine::Solid(solver) => solver
+                .particles()
+                .iter()
+                .chain(solver.departed().iter())
+                .map(Tracer::from)
+                .collect(),
+        }
     }
 
     /// Outcome of the impact so far.
     #[must_use]
     pub fn summary(&self) -> ImpactSummary {
-        let mut particles = self.solver.particles().into_owned();
-        particles.extend_from_slice(&self.solver.departed());
-        summarize(&particles, &self.shot, self.time())
+        summarize_tracers(&self.tracers(), &self.shot, self.time())
     }
 }

@@ -2784,7 +2784,6 @@ dependencies = [
  "rap-domain",
  "rap-io",
  "rap-materials",
- "rap-solver",
  "serde_json",
  "tempfile",
 ]

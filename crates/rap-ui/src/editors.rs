@@ -4,7 +4,7 @@
 use eframe::egui;
 use rap_domain::{
     ApbcProjectile, ApfsdsProjectile, Armor, ArmorLayer, Backend, BallisticCap, MaterialId,
-    NoseShape, ProfilePoint, Projectile, Scenario, SimulationSettings,
+    NoseShape, ObliqueModel, ProfilePoint, Projectile, Scenario, SimulationSettings,
 };
 
 use crate::widgets::{degrees, material_picker, millimetres, row, scaled};
@@ -384,6 +384,23 @@ pub(crate) fn settings(ui: &mut egui::Ui, settings: &mut SimulationSettings) -> 
                                 backend,
                                 backend_label(backend),
                             )
+                            .changed();
+                    }
+                });
+            picked
+        });
+        changed |= row(ui, "Oblique impact", |ui| {
+            let label = |model: ObliqueModel| match model {
+                ObliqueModel::Solid => "3D (CPU only, slow)",
+                ObliqueModel::PlaneStrain => "plane strain (indicative)",
+            };
+            let mut picked = false;
+            egui::ComboBox::from_id_salt("oblique model")
+                .selected_text(label(settings.oblique_model))
+                .show_ui(ui, |ui| {
+                    for model in [ObliqueModel::Solid, ObliqueModel::PlaneStrain] {
+                        picked |= ui
+                            .selectable_value(&mut settings.oblique_model, model, label(model))
                             .changed();
                     }
                 });

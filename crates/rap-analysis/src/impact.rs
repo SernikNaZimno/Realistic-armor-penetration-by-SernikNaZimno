@@ -1,6 +1,6 @@
 //! Outcome of an impact measured along the shot line.
 
-use rap_solver::Particle;
+use rap_solver::{Particle, Particle3};
 use serde::Serialize;
 
 /// Fraction of the projectile mass that must emerge behind the armor for
@@ -29,6 +29,46 @@ pub struct ShotLine {
     pub impact_speed: f64,
 }
 
+/// What the impact summary needs to know about one particle, whatever the
+/// dimension of its model.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Tracer {
+    /// Position along the shot line, in m.
+    pub along: f64,
+    /// Velocity along the shot line, in m/s.
+    pub speed: f64,
+    /// Mass, in the units of the model.
+    pub mass: f64,
+    /// Body the particle belongs to.
+    pub body: usize,
+    /// Whether the material point has failed.
+    pub failed: bool,
+}
+
+impl From<&Particle> for Tracer {
+    fn from(particle: &Particle) -> Self {
+        Self {
+            along: particle.position.x,
+            speed: particle.velocity.x,
+            mass: particle.mass,
+            body: particle.body,
+            failed: particle.is_failed(),
+        }
+    }
+}
+
+impl From<&Particle3> for Tracer {
+    fn from(particle: &Particle3) -> Self {
+        Self {
+            along: particle.position.x,
+            speed: particle.velocity.x,
+            mass: particle.mass,
+            body: particle.body,
+            failed: particle.is_failed(),
+        }
+    }
+}
+
 /// State of an impact at one instant.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct ImpactSummary {
@@ -53,42 +93,35 @@ pub struct ImpactSummary {
     pub armor_failed_fraction: f64,
 }
 
-/// Mass and failed mass of a body.
-fn failed_fraction(particles: &[Particle], body: usize) -> f64 {
-    let (failed, total) = particles
-        .iter()
-        .filter(|particle| particle.body == body)
-        .fold((0.0, 0.0), |(failed, total), particle| {
-            let failed_mass = if particle.is_failed() {
-                particle.mass
-            } else {
-                0.0
-            };
-            (failed + failed_mass, total + particle.mass)
-        });
+/// Failed fraction of the mass of a body.
+fn failed_fraction(tracers: &[Tracer], body: usize) -> f64 {
+    let (failed, total) = tracers.iter().filter(|tracer| tracer.body == body).fold(
+        (0.0, 0.0),
+        |(failed, total), tracer| {
+            let failed_mass = if tracer.failed { tracer.mass } else { 0.0 };
+            (failed + failed_mass, total + tracer.mass)
+        },
+    );
     if total > 0.0 { failed / total } else { 0.0 }
 }
 
-/// Measures the state of an impact from the particles at `time`.
+/// Measures the state of an impact from `tracers` at `time`.
 #[must_use]
-pub fn summarize(particles: &[Particle], shot: &ShotLine, time: f64) -> ImpactSummary {
+pub fn summarize_tracers(tracers: &[Tracer], shot: &ShotLine, time: f64) -> ImpactSummary {
     let armor_path_length = shot.armor_back - shot.armor_face;
     let projectile = || {
-        particles
+        tracers
             .iter()
-            .filter(|particle| particle.body == shot.projectile_body)
+            .filter(|tracer| tracer.body == shot.projectile_body)
     };
 
     let deepest = projectile()
-        .map(|particle| particle.position.x)
+        .map(|tracer| tracer.along)
         .fold(f64::MIN, f64::max);
     let (residual_mass, residual_momentum) = projectile()
-        .filter(|particle| particle.position.x > shot.armor_back)
-        .fold((0.0, 0.0), |(mass, momentum), particle| {
-            (
-                mass + particle.mass,
-                momentum + particle.mass * particle.velocity.x,
-            )
+        .filter(|tracer| tracer.along > shot.armor_back)
+        .fold((0.0, 0.0), |(mass, momentum), tracer| {
+            (mass + tracer.mass, momentum + tracer.mass * tracer.speed)
         });
     let residual_mass_fraction = residual_mass / shot.initial_projectile_mass;
     let residual_speed = if residual_mass > 0.0 {
@@ -105,17 +138,22 @@ pub fn summarize(particles: &[Particle], shot: &ShotLine, time: f64) -> ImpactSu
             && residual_speed > PERFORATION_SPEED_FRACTION * shot.impact_speed,
         residual_speed,
         residual_mass_fraction,
-        projectile_failed_fraction: failed_fraction(particles, shot.projectile_body),
-        armor_failed_fraction: failed_fraction(particles, shot.armor_body),
+        projectile_failed_fraction: failed_fraction(tracers, shot.projectile_body),
+        armor_failed_fraction: failed_fraction(tracers, shot.armor_body),
     }
+}
+
+/// Measures the state of an impact from the particles of a two-dimensional
+/// model at `time`.
+#[must_use]
+pub fn summarize(particles: &[Particle], shot: &ShotLine, time: f64) -> ImpactSummary {
+    let tracers: Vec<Tracer> = particles.iter().map(Tracer::from).collect();
+    summarize_tracers(&tracers, shot, time)
 }
 
 #[cfg(test)]
 mod tests {
-    use glam::{DMat2, DVec2};
-    use rap_solver::{Deviator, Particle};
-
-    use super::{ShotLine, summarize};
+    use super::{ShotLine, Tracer, summarize_tracers};
 
     const SHOT: ShotLine = ShotLine {
         armor_face: 0.10,
@@ -126,34 +164,20 @@ mod tests {
         impact_speed: 1000.0,
     };
 
-    fn particle(x: f64, speed: f64, body: usize, failed: bool) -> Particle {
-        Particle {
-            position: DVec2::new(x, 0.0),
-            velocity: DVec2::new(speed, 0.0),
-            velocity_gradient: DMat2::ZERO,
+    fn tracer(along: f64, speed: f64, body: usize, failed: bool) -> Tracer {
+        Tracer {
+            along,
+            speed,
             mass: 1.0,
-            volume: 1.0e-4,
             body,
-            material: body,
-            deviator: Deviator::default(),
-            pressure: 0.0,
-            viscous_pressure: 0.0,
-            specific_energy: 0.0,
-            plastic_strain: 0.0,
-            plastic_strain_rate: 0.0,
-            temperature: 294.0,
-            damage: if failed { 1.0 } else { 0.0 },
-            sound_speed: 5000.0,
+            failed,
         }
     }
 
     #[test]
     fn projectile_short_of_the_armor_has_not_penetrated() {
-        let particles = [
-            particle(0.05, 1000.0, 0, false),
-            particle(0.12, 0.0, 1, false),
-        ];
-        let summary = summarize(&particles, &SHOT, 1.0e-6);
+        let tracers = [tracer(0.05, 1000.0, 0, false), tracer(0.12, 0.0, 1, false)];
+        let summary = summarize_tracers(&tracers, &SHOT, 1.0e-6);
         assert!(summary.penetration_depth.abs() < f64::EPSILON);
         assert!(!summary.perforated);
         assert!(summary.residual_speed.abs() < f64::EPSILON);
@@ -162,13 +186,13 @@ mod tests {
 
     #[test]
     fn depth_is_measured_from_the_face_to_the_deepest_projectile_point() {
-        let particles = [
-            particle(0.08, 600.0, 0, false),
-            particle(0.13, 300.0, 0, true),
-            particle(0.14, 0.0, 1, true),
-            particle(0.11, 0.0, 1, false),
+        let tracers = [
+            tracer(0.08, 600.0, 0, false),
+            tracer(0.13, 300.0, 0, true),
+            tracer(0.14, 0.0, 1, true),
+            tracer(0.11, 0.0, 1, false),
         ];
-        let summary = summarize(&particles, &SHOT, 5.0e-5);
+        let summary = summarize_tracers(&tracers, &SHOT, 5.0e-5);
         assert!((summary.penetration_depth - 0.03).abs() < 1e-12);
         assert!(!summary.perforated);
         assert!((summary.projectile_failed_fraction - 0.5).abs() < 1e-12);
@@ -177,13 +201,13 @@ mod tests {
 
     #[test]
     fn material_behind_the_armor_counts_as_residual() {
-        let particles = [
-            particle(0.12, 100.0, 0, true),
-            particle(0.16, 700.0, 0, false),
-            particle(0.18, 900.0, 0, false),
-            particle(0.16, 400.0, 1, true),
+        let tracers = [
+            tracer(0.12, 100.0, 0, true),
+            tracer(0.16, 700.0, 0, false),
+            tracer(0.18, 900.0, 0, false),
+            tracer(0.16, 400.0, 1, true),
         ];
-        let summary = summarize(&particles, &SHOT, 1.0e-4);
+        let summary = summarize_tracers(&tracers, &SHOT, 1.0e-4);
         assert!(summary.perforated);
         assert!((summary.residual_speed - 800.0).abs() < 1e-9);
         assert!((summary.residual_mass_fraction - 0.5).abs() < 1e-12);
@@ -193,12 +217,12 @@ mod tests {
 
     #[test]
     fn projectile_at_rest_in_a_rear_bulge_has_not_perforated() {
-        let particles = [
-            particle(0.14, 0.0, 0, false),
-            particle(0.155, 10.0, 0, false),
-            particle(0.16, 5.0, 1, false),
+        let tracers = [
+            tracer(0.14, 0.0, 0, false),
+            tracer(0.155, 10.0, 0, false),
+            tracer(0.16, 5.0, 1, false),
         ];
-        let summary = summarize(&particles, &SHOT, 3.0e-4);
+        let summary = summarize_tracers(&tracers, &SHOT, 3.0e-4);
         assert!((summary.residual_mass_fraction - 0.25).abs() < 1e-12);
         assert!(!summary.perforated);
     }

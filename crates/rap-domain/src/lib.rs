@@ -17,7 +17,7 @@ pub use armor::{Armor, ArmorLayer, ProfilePoint};
 pub use material_id::MaterialId;
 pub use projectile::{ApbcProjectile, ApfsdsProjectile, BallisticCap, NoseShape, Projectile};
 pub use scenario::Scenario;
-pub use settings::{Backend, SimulationSettings};
+pub use settings::{Backend, ObliqueModel, SimulationSettings};
 pub use validation::{DomainError, InvalidParameter};
 
 /// Human-readable application name shown by every front end.

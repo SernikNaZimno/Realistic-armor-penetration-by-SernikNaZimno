@@ -9,7 +9,7 @@ use rap_domain::{DomainError, MaterialId};
 use rap_solver::SolverError;
 use thiserror::Error;
 
-pub use assemble::{Assembly, Layout, assemble};
+pub use assemble::{Assembly, Layout, ModelKind, SolidAssembly, assemble, assemble_solid};
 pub use simulation::Simulation;
 
 /// Reasons a scenario cannot be simulated.
@@ -32,6 +32,13 @@ pub enum AppError {
         /// Number of nodes the grid would need.
         nodes: usize,
     },
+    /// A three-dimensional model was requested on the GPU solver, which
+    /// only handles two-dimensional models.
+    #[error(
+        "the GPU solver cannot run three-dimensional models yet; use the CPU solver, or model \
+         the oblique impact in plane strain"
+    )]
+    SolidOnGpu,
     /// The solver rejected the model or failed while running.
     #[error(transparent)]
     Solver(#[from] SolverError),

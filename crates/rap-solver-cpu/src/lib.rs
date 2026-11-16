@@ -23,6 +23,7 @@
 mod constitutive;
 mod constraints;
 mod kernel;
+mod solid;
 
 use std::borrow::Cow;
 
@@ -36,6 +37,8 @@ use rayon::prelude::*;
 
 use crate::constitutive::Kinematics;
 use crate::kernel::Stencil;
+
+pub use crate::solid::MpmSolver3;
 
 /// Smallest radius, in cells, used when dividing by the distance from the
 /// axis of an axisymmetric model.

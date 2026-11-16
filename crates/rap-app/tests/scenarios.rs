@@ -1,9 +1,9 @@
 //! Assembling scenarios into models and simulating them end to end.
 
-use rap_app::{AppError, Simulation, assemble, presets};
+use rap_app::{AppError, ModelKind, Simulation, assemble, assemble_solid, presets};
 use rap_domain::material_id::{STEEL_4340, TUNGSTEN_HEAVY_ALLOY};
 use rap_domain::{
-    ApfsdsProjectile, Armor, ArmorLayer, MaterialId, NoseShape, Projectile, Scenario,
+    ApfsdsProjectile, Armor, ArmorLayer, MaterialId, NoseShape, ObliqueModel, Projectile, Scenario,
     SimulationSettings,
 };
 use rap_materials::{EquationOfState, library};
@@ -109,12 +109,12 @@ fn spaced_layers_leave_a_gap_and_lengthen_the_shot_line() {
 
 #[test]
 fn oblique_impact_becomes_a_planar_model_with_a_tilted_plate() {
-    let assembly = assemble(
-        &scenario(vec![plate(0.02, 0.0)], 60.0),
-        &SimulationSettings::default(),
-        &[],
-    )
-    .expect("the scenario is valid");
+    let settings = SimulationSettings {
+        oblique_model: ObliqueModel::PlaneStrain,
+        ..SimulationSettings::default()
+    };
+    let assembly = assemble(&scenario(vec![plate(0.02, 0.0)], 60.0), &settings, &[])
+        .expect("the scenario is valid");
     let (model, layout) = (&assembly.model, &assembly.layout);
     assert_eq!(layout.symmetry, Symmetry::Planar);
     assert_eq!(model.validate(), Ok(()));
@@ -360,4 +360,115 @@ fn gpu_backend_gives_the_same_outcome_as_the_cpu() {
     assert!((gpu_summary.residual_mass_fraction - cpu_summary.residual_mass_fraction).abs() < 0.02);
     // Material that flew out of the grid is still accounted for.
     assert!(!gpu.departed().is_empty());
+}
+
+/// A short rod and a thin plate, coarse enough for a quick solid model.
+fn small_oblique_scenario(obliquity_degrees: f64) -> (Scenario, SimulationSettings) {
+    let mut scenario = scenario(vec![plate(0.006, 0.0)], obliquity_degrees);
+    scenario.projectile = rod(4.0e-3, 24.0e-3);
+    let settings = SimulationSettings {
+        cells_per_radius: 2.0,
+        armor_extent_radii: 5.0,
+        ..SimulationSettings::default()
+    };
+    (scenario, settings)
+}
+
+#[test]
+fn oblique_impact_becomes_a_solid_half_model_by_default() {
+    let (scenario, settings) = small_oblique_scenario(45.0);
+    assert_eq!(ModelKind::of(&scenario, &settings), ModelKind::Solid);
+    let assembly = assemble_solid(&scenario, &settings, &[]).expect("the scenario is valid");
+    let (model, layout) = (&assembly.model, &assembly.layout);
+    assert_eq!(layout.kind, ModelKind::Solid);
+    assert_eq!(model.validate(), Ok(()));
+    // Line-of-sight thickness grows by 1/cos 45°.
+    assert!((layout.armor_back - layout.armor_face - 0.006 * 2.0_f64.sqrt()).abs() < 1e-9);
+
+    // Half of the body of revolution: π·R²·(L + L_nose/3)/2.
+    let (radius, length) = (4.0e-3_f64, 24.0e-3);
+    let nose_length = radius / 30.0_f64.to_radians().tan();
+    let expected = std::f64::consts::PI * radius.powi(2) * (length + nose_length / 3.0) / 2.0;
+    let rod_volume: f64 = model
+        .seeds
+        .iter()
+        .filter(|seed| seed.body == layout.projectile_body)
+        .map(|seed| seed.volume)
+        .sum();
+    assert!(
+        (rod_volume / expected - 1.0).abs() < 0.12,
+        "{}",
+        rod_volume / expected
+    );
+
+    // Everything lies on one side of the symmetry plane, and the plate
+    // leans towards the projectile above the shot line.
+    assert!(
+        model
+            .seeds
+            .iter()
+            .all(|seed| seed.position.z > layout.symmetry_plane)
+    );
+    let mean_x = |above: bool| {
+        let (sum, count) = model
+            .seeds
+            .iter()
+            .filter(|seed| seed.body == layout.armor_body)
+            .filter(|seed| (seed.position.y > layout.shot_line) == above)
+            .fold((0.0, 0.0), |(sum, count), seed| {
+                (sum + seed.position.x, count + 1.0)
+            });
+        sum / count
+    };
+    assert!(mean_x(true) < mean_x(false));
+}
+
+#[test]
+fn solid_oblique_impact_runs_and_deflects_the_projectile() {
+    let (scenario, settings) = small_oblique_scenario(45.0);
+    let mut simulation = Simulation::new(&scenario, &settings, &[]).expect("the scenario is valid");
+    assert_eq!(simulation.layout().kind, ModelKind::Solid);
+    assert!(simulation.solid_particles().is_some());
+    // The picture is a slice: far fewer particles than the model has.
+    assert!(simulation.particles().len() * 4 < simulation.particle_count());
+
+    let end_time = simulation.layout().end_time;
+    simulation
+        .advance_to(end_time)
+        .expect("the simulation stays valid");
+    let summary = simulation.summary();
+    eprintln!("solid oblique: {summary:?}");
+    assert!(summary.perforated);
+    assert!(summary.residual_speed > 0.6 * 1500.0 && summary.residual_speed < 1500.0);
+
+    // The tilted plate pushes the rod sideways, away from the plate normal:
+    // an asymmetry no axisymmetric model can show.
+    let solid = simulation.solid_particles().expect("a solid model");
+    let departed = simulation.departed();
+    let lateral: f64 = solid
+        .iter()
+        .filter(|particle| particle.body == 0)
+        .map(|particle| particle.mass * particle.velocity.y)
+        .sum();
+    eprintln!(
+        "lateral momentum of the remaining rod: {lateral:.3e}, departed slice: {}",
+        departed.len()
+    );
+    assert!(lateral.abs() > 0.0);
+    // Nothing crossed the symmetry plane.
+    assert!(solid.iter().all(|particle| particle.position.z > 0.0));
+}
+
+#[test]
+fn solid_models_are_refused_on_the_gpu() {
+    use rap_domain::Backend;
+    let (scenario, mut settings) = small_oblique_scenario(30.0);
+    settings.backend = Backend::Gpu;
+    assert!(matches!(
+        Simulation::new(&scenario, &settings, &[]),
+        Err(AppError::SolidOnGpu)
+    ));
+    // In plane strain the same scenario is a two-dimensional model again.
+    settings.oblique_model = ObliqueModel::PlaneStrain;
+    assert_eq!(ModelKind::of(&scenario, &settings), ModelKind::PlaneStrain);
 }

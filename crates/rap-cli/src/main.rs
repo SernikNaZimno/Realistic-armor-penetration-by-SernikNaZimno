@@ -6,11 +6,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use rap_app::{Simulation, presets};
+use rap_app::{ModelKind, Simulation, presets};
 use rap_domain::{APP_NAME, Backend};
 use rap_io::{ScenarioFile, vtk};
 use rap_materials::{EquationOfState, library};
-use rap_solver::Symmetry;
 use serde_json::json;
 
 /// Command-line arguments.
@@ -155,9 +154,10 @@ fn run(
         .with_context(|| format!("cannot create {}", directory.display()))?;
 
     let layout = *simulation.layout();
-    let symmetry = match layout.symmetry {
-        Symmetry::Axisymmetric => "axisymmetric",
-        Symmetry::Planar => "plane strain",
+    let symmetry = match layout.kind {
+        ModelKind::Axisymmetric => "axisymmetric",
+        ModelKind::PlaneStrain => "plane strain",
+        ModelKind::Solid => "three-dimensional (half model)",
     };
     writeln!(output, "{APP_NAME}")?;
     writeln!(output, "Solver: {}", simulation.solver_name())?;
@@ -165,10 +165,10 @@ fn run(
         output,
         "Model: {symmetry}, cell {:.3} mm, {} particles, {:.1} µs to simulate",
         layout.cell_size * 1.0e3,
-        simulation.particles().len(),
+        simulation.particle_count(),
         layout.end_time * 1.0e6
     )?;
-    if layout.symmetry == Symmetry::Planar {
+    if layout.kind == ModelKind::PlaneStrain {
         writeln!(
             output,
             "Note: an oblique impact is modelled in plane strain; the projectile acts as a \
@@ -197,7 +197,10 @@ fn run(
         )?;
         if options.snapshots {
             let path = directory.join(format!("particles_{index:04}.vtk"));
-            vtk::save_particles(&path, &simulation.particles())?;
+            match simulation.solid_particles() {
+                Some(particles) => vtk::save_solid_particles(&path, &particles)?,
+                None => vtk::save_particles(&path, &simulation.particles())?,
+            }
         }
         history.push(summary);
     }
@@ -224,7 +227,7 @@ fn run(
         "model": {
             "symmetry": symmetry,
             "cell_size": layout.cell_size,
-            "particles": simulation.particles().len(),
+            "particles": simulation.particle_count(),
             "end_time": layout.end_time,
         },
         "result": last,

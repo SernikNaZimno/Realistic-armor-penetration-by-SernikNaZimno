@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 use glam::DVec2;
 use rap_analysis::{ImpactSummary, bounding_box};
-use rap_app::{Simulation, presets};
+use rap_app::{ModelKind, Simulation, presets};
 use rap_domain::{Backend, SimulationSettings};
 use rap_io::{IoError, ScenarioFile};
 use rap_solver::{Particle, Symmetry};
@@ -375,11 +375,12 @@ impl App {
         };
         let layout = preview.simulation.layout();
         egui::Grid::new("model").num_columns(2).show(ui, |ui| {
-            let symmetry = match layout.symmetry {
-                Symmetry::Axisymmetric => "axisymmetric",
-                Symmetry::Planar => "plane strain",
+            let symmetry = match layout.kind {
+                ModelKind::Axisymmetric => "axisymmetric",
+                ModelKind::PlaneStrain => "plane strain",
+                ModelKind::Solid => "3D half model (cross-section shown)",
             };
-            let particles = preview.simulation.particles().len();
+            let particles = preview.simulation.particle_count();
             for (label, value) in [
                 ("Model", symmetry.to_owned()),
                 ("Cell size", format!("{:.3} mm", layout.cell_size * 1.0e3)),
@@ -394,7 +395,7 @@ impl App {
                 ui.end_row();
             }
         });
-        if layout.symmetry == Symmetry::Planar {
+        if layout.kind == ModelKind::PlaneStrain {
             ui.weak(
                 "An oblique impact is modelled in plane strain: the projectile acts as a slab, \
                  so depths are indicative only.",

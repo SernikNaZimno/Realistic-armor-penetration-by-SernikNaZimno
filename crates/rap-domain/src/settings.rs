@@ -15,6 +15,19 @@ pub enum Backend {
     Gpu,
 }
 
+/// How an oblique impact, which has no axis of symmetry, is modelled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObliqueModel {
+    /// In three dimensions. Faithful, and many times more expensive than a
+    /// two-dimensional model of the same resolution.
+    #[default]
+    Solid,
+    /// In plane strain, where the projectile is a slab rather than a body
+    /// of revolution. Cheap and only indicative.
+    PlaneStrain,
+}
+
 /// How finely and how long a scenario is simulated. Every field has a
 /// default, so a scenario file may omit any of them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,6 +50,9 @@ pub struct SimulationSettings {
     pub snapshots: u32,
     /// Solver to run on.
     pub backend: Backend,
+    /// How an oblique impact is modelled. Ignored for a perpendicular one,
+    /// which is always axisymmetric.
+    pub oblique_model: ObliqueModel,
 }
 
 impl Default for SimulationSettings {
@@ -49,6 +65,7 @@ impl Default for SimulationSettings {
             end_time: None,
             snapshots: 20,
             backend: Backend::Cpu,
+            oblique_model: ObliqueModel::Solid,
         }
     }
 }
