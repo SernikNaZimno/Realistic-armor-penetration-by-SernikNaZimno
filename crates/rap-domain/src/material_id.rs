@@ -9,6 +9,9 @@ pub const STEEL_4340: &str = "steel-4340";
 /// Identifier of the built-in tungsten heavy alloy.
 pub const TUNGSTEN_HEAVY_ALLOY: &str = "tungsten-heavy-alloy";
 
+/// Identifier of the built-in 99.5 % alumina ceramic.
+pub const ALUMINA: &str = "alumina-99.5";
+
 /// Key of a material in a material library.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]

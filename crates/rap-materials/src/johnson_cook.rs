@@ -196,6 +196,8 @@ mod tests {
             strain,
             strain_rate,
             temperature,
+            pressure: 0.0,
+            damage: 0.0,
         }
     }
 

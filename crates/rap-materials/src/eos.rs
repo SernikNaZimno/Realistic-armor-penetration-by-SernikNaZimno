@@ -86,6 +86,67 @@ impl EquationOfState for MieGruneisen {
     }
 }
 
+/// Polynomial equation of state without an energy term, as used with the
+/// Johnson–Holmquist ceramic models. With `μ = ρ/ρ0 − 1`:
+///
+/// ```text
+/// p = K1·μ + K2·μ² + K3·μ³   in compression,
+/// p = K1·μ                   in expansion.
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolynomialEos {
+    /// Density at the reference state, `ρ0`, in kg/m³.
+    pub reference_density: f64,
+    /// Bulk modulus `K1`, in Pa.
+    pub k1: f64,
+    /// Second coefficient `K2`, in Pa.
+    pub k2: f64,
+    /// Third coefficient `K3`, in Pa.
+    pub k3: f64,
+}
+
+impl PolynomialEos {
+    /// Checks the parameters.
+    ///
+    /// # Errors
+    /// Returns [`InvalidParameter`] naming the first invalid parameter.
+    pub fn validate(&self) -> Result<(), InvalidParameter> {
+        validation::positive("eos.reference_density", self.reference_density)?;
+        validation::positive("eos.k1", self.k1)?;
+        validation::finite("eos.k2", self.k2)?;
+        validation::finite("eos.k3", self.k3)
+    }
+
+    /// Pressure and its derivative with respect to `μ`.
+    fn evaluate(&self, density: f64) -> (f64, f64) {
+        let mu = density / self.reference_density - 1.0;
+        if mu <= 0.0 {
+            return (self.k1 * mu, self.k1);
+        }
+        (
+            mu * (self.k1 + mu * (self.k2 + mu * self.k3)),
+            self.k1 + mu * (2.0 * self.k2 + 3.0 * mu * self.k3),
+        )
+    }
+}
+
+impl EquationOfState for PolynomialEos {
+    fn reference_density(&self) -> f64 {
+        self.reference_density
+    }
+
+    fn pressure(&self, density: f64, _specific_energy: f64) -> f64 {
+        self.evaluate(density).0
+    }
+
+    fn sound_speed(&self, density: f64, _specific_energy: f64) -> f64 {
+        (self.evaluate(density).1 / self.reference_density)
+            .max(0.0)
+            .sqrt()
+    }
+}
+
 /// The built-in equations of state.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -93,6 +154,8 @@ impl EquationOfState for MieGruneisen {
 pub enum Eos {
     /// See [`MieGruneisen`].
     MieGruneisen(MieGruneisen),
+    /// See [`PolynomialEos`].
+    Polynomial(PolynomialEos),
 }
 
 impl Eos {
@@ -103,6 +166,7 @@ impl Eos {
     pub fn validate(&self) -> Result<(), InvalidParameter> {
         match self {
             Self::MieGruneisen(model) => model.validate(),
+            Self::Polynomial(model) => model.validate(),
         }
     }
 }
@@ -111,18 +175,21 @@ impl EquationOfState for Eos {
     fn reference_density(&self) -> f64 {
         match self {
             Self::MieGruneisen(model) => model.reference_density(),
+            Self::Polynomial(model) => model.reference_density(),
         }
     }
 
     fn pressure(&self, density: f64, specific_energy: f64) -> f64 {
         match self {
             Self::MieGruneisen(model) => model.pressure(density, specific_energy),
+            Self::Polynomial(model) => model.pressure(density, specific_energy),
         }
     }
 
     fn sound_speed(&self, density: f64, specific_energy: f64) -> f64 {
         match self {
             Self::MieGruneisen(model) => model.sound_speed(density, specific_energy),
+            Self::Polynomial(model) => model.sound_speed(density, specific_energy),
         }
     }
 }
@@ -131,7 +198,7 @@ impl EquationOfState for Eos {
 mod tests {
     use proptest::prelude::*;
 
-    use super::MieGruneisen;
+    use super::{MieGruneisen, PolynomialEos};
     use crate::EquationOfState;
 
     const STEEL: MieGruneisen = MieGruneisen {
@@ -224,5 +291,33 @@ mod tests {
             let density = STEEL.reference_density * (1.0 + compression);
             prop_assert!(STEEL.pressure(density, energy + 1.0) > STEEL.pressure(density, energy));
         }
+    }
+
+    #[test]
+    fn polynomial_pressure_and_sound_speed() {
+        let alumina = PolynomialEos {
+            reference_density: 3700.0,
+            k1: 130.95e9,
+            k2: 20.0e9,
+            k3: 5.0e9,
+        };
+        assert_eq!(alumina.validate(), Ok(()));
+        assert!(alumina.pressure(3700.0, 1.0e6).abs() < 1e-6);
+        let reference_speed = (130.95e9_f64 / 3700.0).sqrt();
+        assert!((alumina.sound_speed(3700.0, 0.0) / reference_speed - 1.0).abs() < 1e-12);
+        // μ = 0.1: 13.095 + 0.2 + 0.005 GPa.
+        let compressed = alumina.pressure(4070.0, 0.0);
+        assert!((compressed / 13.3e9 - 1.0).abs() < 1e-9, "{compressed}");
+        // Linear in expansion.
+        assert!((alumina.pressure(3663.0, 0.0) / (-0.01 * 130.95e9) - 1.0).abs() < 1e-9);
+        // The sound speed is the slope of the pressure curve.
+        let step = 1.0e-3;
+        let slope = (alumina.pressure(4070.0 + step, 0.0) - alumina.pressure(4070.0 - step, 0.0))
+            / (2.0 * step);
+        assert!(
+            (alumina.sound_speed(4070.0, 0.0) / (slope * 4070.0 / 3700.0).sqrt() - 1.0).abs() < 1.0
+        );
+        let broken = PolynomialEos { k1: 0.0, ..alumina };
+        assert_eq!(broken.validate().unwrap_err().field, "eos.k1");
     }
 }

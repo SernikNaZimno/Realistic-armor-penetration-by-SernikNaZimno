@@ -472,3 +472,83 @@ fn solid_models_are_refused_on_the_gpu() {
     settings.oblique_model = ObliqueModel::PlaneStrain;
     assert_eq!(ModelKind::of(&scenario, &settings), ModelKind::PlaneStrain);
 }
+
+#[test]
+fn ceramic_faced_armor_fractures_under_the_rod() {
+    use rap_domain::material_id::ALUMINA;
+    let ceramic = ArmorLayer {
+        material: MaterialId::new(ALUMINA),
+        thickness: 0.008,
+        gap_before: 0.0,
+    };
+    let scenario = scenario(vec![ceramic, plate(0.008, 0.0)], 0.0);
+    let settings = SimulationSettings {
+        cells_per_radius: 3.0,
+        armor_extent_radii: 6.0,
+        ..SimulationSettings::default()
+    };
+    let assembly = assemble(&scenario, &settings, &[]).expect("the scenario is valid");
+    let names: Vec<_> = assembly
+        .model
+        .materials
+        .iter()
+        .map(|material| material.id.as_str())
+        .collect();
+    assert_eq!(names, [TUNGSTEN_HEAVY_ALLOY, ALUMINA, STEEL_4340]);
+
+    let mut simulation = Simulation::new(&scenario, &settings, &[]).expect("the scenario is valid");
+    let end_time = simulation.layout().end_time;
+    simulation
+        .advance_to(end_time)
+        .expect("the simulation stays valid");
+    let summary = simulation.summary();
+    eprintln!("ceramic-faced: {summary:?}");
+    // The tile under the rod is comminuted; the steel behind is not.
+    let particles = simulation.particles();
+    let failed_fraction = |material: usize| {
+        let (failed, all) = particles
+            .iter()
+            .chain(simulation.departed().iter())
+            .filter(|particle| particle.material == material)
+            .fold((0.0, 0.0), |(failed, all), particle| {
+                (
+                    failed + f64::from(u8::from(particle.is_failed())),
+                    all + 1.0,
+                )
+            });
+        failed / all
+    };
+    assert!(
+        failed_fraction(1) > 0.2,
+        "ceramic failed fraction {}",
+        failed_fraction(1)
+    );
+    assert!(failed_fraction(1) > 2.0 * failed_fraction(2));
+    assert!(summary.penetration_depth > 0.008);
+}
+
+#[test]
+fn ceramics_are_refused_on_the_gpu() {
+    use rap_domain::Backend;
+    use rap_domain::material_id::ALUMINA;
+    use rap_solver::SolverError;
+    let ceramic = ArmorLayer {
+        material: MaterialId::new(ALUMINA),
+        thickness: 0.008,
+        gap_before: 0.0,
+    };
+    let settings = SimulationSettings {
+        backend: Backend::Gpu,
+        ..SimulationSettings::default()
+    };
+    match Simulation::new(&scenario(vec![ceramic], 0.0), &settings, &[]) {
+        Err(AppError::Solver(SolverError::Gpu(message))) => {
+            assert!(message.contains("alumina-99.5"), "{message}");
+        }
+        Err(AppError::Solver(SolverError::NoGpu)) => {
+            eprintln!("skipped: no compatible GPU on this machine");
+        }
+        Ok(_) => panic!("the GPU solver does not implement the ceramic model"),
+        Err(error) => panic!("unexpected error: {error}"),
+    }
+}

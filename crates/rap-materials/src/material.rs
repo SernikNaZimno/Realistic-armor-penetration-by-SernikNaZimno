@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::eos::Eos;
 use crate::johnson_cook::{JohnsonCookDamage, JohnsonCookStrength};
+use crate::johnson_holmquist::{JohnsonHolmquistDamage, JohnsonHolmquistStrength};
 use crate::{DamageModel, PlasticState, StrengthModel};
 
 /// The built-in strength models.
@@ -15,6 +16,8 @@ use crate::{DamageModel, PlasticState, StrengthModel};
 pub enum Strength {
     /// See [`JohnsonCookStrength`].
     JohnsonCook(JohnsonCookStrength),
+    /// See [`JohnsonHolmquistStrength`].
+    JohnsonHolmquist(JohnsonHolmquistStrength),
 }
 
 impl Strength {
@@ -25,6 +28,7 @@ impl Strength {
     pub fn validate(&self) -> Result<(), InvalidParameter> {
         match self {
             Self::JohnsonCook(model) => model.validate(),
+            Self::JohnsonHolmquist(model) => model.validate(),
         }
     }
 }
@@ -33,12 +37,14 @@ impl StrengthModel for Strength {
     fn shear_modulus(&self) -> f64 {
         match self {
             Self::JohnsonCook(model) => model.shear_modulus(),
+            Self::JohnsonHolmquist(model) => model.shear_modulus(),
         }
     }
 
     fn flow_stress(&self, state: PlasticState) -> f64 {
         match self {
             Self::JohnsonCook(model) => model.flow_stress(state),
+            Self::JohnsonHolmquist(model) => model.flow_stress(state),
         }
     }
 }
@@ -50,6 +56,8 @@ impl StrengthModel for Strength {
 pub enum Damage {
     /// See [`JohnsonCookDamage`].
     JohnsonCook(JohnsonCookDamage),
+    /// See [`JohnsonHolmquistDamage`].
+    JohnsonHolmquist(JohnsonHolmquistDamage),
 }
 
 impl Damage {
@@ -60,6 +68,19 @@ impl Damage {
     pub fn validate(&self) -> Result<(), InvalidParameter> {
         match self {
             Self::JohnsonCook(model) => model.validate(),
+            Self::JohnsonHolmquist(model) => model.validate(),
+        }
+    }
+}
+
+impl Strength {
+    /// Whether fully damaged material still resists shear; see
+    /// [`StrengthModel::keeps_strength_when_failed`].
+    #[must_use]
+    pub fn keeps_strength_when_failed(&self) -> bool {
+        match self {
+            Self::JohnsonCook(model) => model.keeps_strength_when_failed(),
+            Self::JohnsonHolmquist(model) => model.keeps_strength_when_failed(),
         }
     }
 }
@@ -68,6 +89,7 @@ impl DamageModel for Damage {
     fn failure_strain(&self, triaxiality: f64, state: PlasticState) -> f64 {
         match self {
             Self::JohnsonCook(model) => model.failure_strain(triaxiality, state),
+            Self::JohnsonHolmquist(model) => model.failure_strain(triaxiality, state),
         }
     }
 }

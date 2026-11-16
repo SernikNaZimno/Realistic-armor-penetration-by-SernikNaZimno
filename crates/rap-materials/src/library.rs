@@ -2,15 +2,17 @@
 //!
 //! Parameters are taken from commonly cited open literature (Johnson & Cook,
 //! 1983 and 1985, for strength and fracture; linear-Hugoniot fits for the
-//! equations of state; spall strengths are round values inside the ranges
+//! equations of state; Johnson–Holmquist constants for alumina as commonly
+//! cited for JH-2; spall strengths of the metals are round values inside the ranges
 //! reported for these alloys). They are starting points for qualitative studies and
 //! must be checked against a primary source before any quantitative use.
 
 use rap_domain::MaterialId;
-use rap_domain::material_id::{STEEL_4340, TUNGSTEN_HEAVY_ALLOY};
+use rap_domain::material_id::{ALUMINA, STEEL_4340, TUNGSTEN_HEAVY_ALLOY};
 
-use crate::eos::{Eos, MieGruneisen};
+use crate::eos::{Eos, MieGruneisen, PolynomialEos};
 use crate::johnson_cook::{JohnsonCookDamage, JohnsonCookStrength, RateTemperatureReference};
+use crate::johnson_holmquist::{JohnsonHolmquistDamage, JohnsonHolmquistStrength};
 use crate::material::{Damage, Material, Strength};
 
 const ROOM_TEMPERATURE: f64 = 294.0;
@@ -96,10 +98,52 @@ pub fn tungsten_heavy_alloy() -> Material {
     }
 }
 
+/// Alumina ceramic, 99.5 % pure, with the Johnson–Holmquist JH-2 model.
+///
+/// The equivalent stress at the Hugoniot elastic limit follows from the
+/// longitudinal limit of 2.79e9 Pa and its pressure of 1.46e9 Pa:
+/// `σ_HEL = 1.5·(HEL − P_HEL)`.
+#[must_use]
+pub fn alumina() -> Material {
+    let (hel_pressure, tensile_strength) = (1.46e9, 0.2e9);
+    Material {
+        id: MaterialId::new(ALUMINA),
+        name: "Alumina 99.5 %".to_owned(),
+        eos: Eos::Polynomial(PolynomialEos {
+            reference_density: 3700.0,
+            k1: 130.95e9,
+            k2: 0.0,
+            k3: 0.0,
+        }),
+        strength: Strength::JohnsonHolmquist(JohnsonHolmquistStrength {
+            shear_modulus: 90.16e9,
+            hel_stress: 1.5 * (2.79e9 - hel_pressure),
+            hel_pressure,
+            tensile_strength,
+            intact_coefficient: 0.93,
+            intact_exponent: 0.6,
+            fractured_coefficient: 0.31,
+            fractured_exponent: 0.6,
+            fractured_limit: 1.0,
+            rate_coefficient: 0.0,
+            reference_strain_rate: 1.0,
+        }),
+        damage: Damage::JohnsonHolmquist(JohnsonHolmquistDamage {
+            d1: 0.005,
+            d2: 1.0,
+            hel_pressure,
+            tensile_strength,
+        }),
+        spall_strength: tensile_strength,
+        specific_heat: 880.0,
+        taylor_quinney: TAYLOR_QUINNEY,
+    }
+}
+
 /// All built-in materials.
 #[must_use]
 pub fn builtin() -> Vec<Material> {
-    vec![steel_4340(), tungsten_heavy_alloy()]
+    vec![steel_4340(), tungsten_heavy_alloy(), alumina()]
 }
 
 #[cfg(test)]
@@ -135,6 +179,8 @@ mod tests {
                 strain: 0.0,
                 strain_rate: 1.0,
                 temperature: 294.0,
+                pressure: 0.0,
+                damage: 0.0,
             };
             assert!(
                 material.strength.flow_stress(state) > 0.0,

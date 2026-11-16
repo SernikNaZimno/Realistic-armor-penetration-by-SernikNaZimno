@@ -84,7 +84,10 @@ pub(crate) fn update(
     particle.volume *= (time_step * divergence).exp();
     let density = particle.density();
 
-    if particle.is_failed() {
+    // Failed metal flows freely; fractured ceramic keeps a reduced,
+    // pressure-dependent strength that its strength model accounts for.
+    let flows_freely_when_failed = !material.strength.keeps_strength_when_failed();
+    if particle.is_failed() && flows_freely_when_failed {
         particle.plastic_strain_rate = 0.0;
     } else {
         // Trial elastic deviator: ṡ = 2G·dev(D) + W·s − s·W. The hoop
@@ -103,6 +106,8 @@ pub(crate) fn update(
             strain: particle.plastic_strain,
             strain_rate: particle.plastic_strain_rate,
             temperature: particle.temperature,
+            pressure: particle.pressure,
+            damage: particle.damage,
         };
         let yield_stress = material.strength.flow_stress(state);
         let equivalent = trial.equivalent_stress();
@@ -130,14 +135,16 @@ pub(crate) fn update(
         particle.damage = 1.0;
     }
     if particle.is_failed() {
-        particle.deviator = Deviator::default();
+        if flows_freely_when_failed {
+            particle.deviator = Deviator::default();
+        }
         particle.pressure = particle.pressure.max(0.0);
     }
     particle.sound_speed = wave_speed(
         material,
         density,
         particle.specific_energy,
-        particle.is_failed(),
+        particle.is_failed() && flows_freely_when_failed,
     );
 
     let compression_rate = (-divergence).max(0.0);
@@ -260,6 +267,8 @@ mod tests {
             strain: 0.0,
             strain_rate: 0.0,
             temperature: 294.0,
+            pressure: 0.0,
+            damage: 0.0,
         });
         assert!((state.deviator.equivalent_stress() / initial_yield - 1.0).abs() < 1e-12);
         assert!(state.plastic_strain > 0.02);
@@ -364,6 +373,43 @@ mod tests {
         assert!(state.deviator.equivalent_stress().abs() < f64::EPSILON);
         // Without shear stiffness only the bulk wave is left.
         assert!(state.sound_speed < 0.9 * intact_speed);
+    }
+
+    #[test]
+    fn ceramic_yields_at_its_hugoniot_elastic_limit_and_keeps_strength_when_fractured() {
+        let alumina = library::alumina();
+        let mut state = particle(&alumina);
+        let kinematics = plane(-1.0e3, 0.0, 0.0, 0.0);
+        let mut steps = 0;
+        // Uniaxial compression until the first plastic strain.
+        while state.plastic_strain <= 0.0 {
+            advance(&mut state, &alumina, &kinematics, 1.0e-8);
+            steps += 1;
+            assert!(steps < 10_000, "the ceramic never yielded");
+        }
+        let longitudinal = -state.stress_xx();
+        assert!((longitudinal / 2.79e9 - 1.0).abs() < 0.02, "{longitudinal}");
+
+        // Keep compressing: damage reaches one, but under pressure the
+        // fractured material still carries shear.
+        while !state.is_failed() {
+            advance(&mut state, &alumina, &kinematics, 1.0e-8);
+            steps += 1;
+            assert!(steps < 100_000, "the ceramic never fractured");
+        }
+        advance(&mut state, &alumina, &kinematics, 1.0e-8);
+        assert!(state.pressure > 1.0e9);
+        let fractured = state.deviator.equivalent_stress();
+        assert!(fractured > 0.2e9 && fractured < 1.995e9, "{fractured}");
+
+        // Released to zero pressure, fractured ceramic is rubble: no shear
+        // strength and no tension.
+        let release = plane(1.0e3, 0.0, 0.0, 0.0);
+        for _ in 0..(2 * steps) {
+            advance(&mut state, &alumina, &release, 1.0e-8);
+        }
+        assert!(state.pressure.abs() < f64::EPSILON);
+        assert!(state.deviator.equivalent_stress() < 1.0e6);
     }
 
     #[test]

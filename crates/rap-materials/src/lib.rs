@@ -11,11 +11,13 @@
 
 pub mod eos;
 pub mod johnson_cook;
+pub mod johnson_holmquist;
 pub mod library;
 pub mod material;
 
-pub use eos::{Eos, MieGruneisen};
+pub use eos::{Eos, MieGruneisen, PolynomialEos};
 pub use johnson_cook::{JohnsonCookDamage, JohnsonCookStrength, RateTemperatureReference};
+pub use johnson_holmquist::{JohnsonHolmquistDamage, JohnsonHolmquistStrength};
 pub use material::{Damage, Material, Strength};
 
 /// Pressure response of a material to compression and heating.
@@ -40,6 +42,12 @@ pub struct PlasticState {
     pub strain_rate: f64,
     /// Temperature, in K.
     pub temperature: f64,
+    /// Pressure, in Pa, positive in compression. Used by models whose
+    /// strength depends on confinement.
+    pub pressure: f64,
+    /// Accumulated damage in `[0, 1]`. Used by models whose strength
+    /// degrades as the material fractures.
+    pub damage: f64,
 }
 
 /// Resistance of a material to plastic flow.
@@ -49,6 +57,13 @@ pub trait StrengthModel {
 
     /// Current flow (yield) stress, in Pa.
     fn flow_stress(&self, state: PlasticState) -> f64;
+
+    /// Whether fully damaged material still resists shear under pressure,
+    /// as fractured ceramic does. Ductile metals, the default, flow freely
+    /// once they have failed.
+    fn keeps_strength_when_failed(&self) -> bool {
+        false
+    }
 }
 
 /// Ductile failure criterion based on accumulated plastic strain.

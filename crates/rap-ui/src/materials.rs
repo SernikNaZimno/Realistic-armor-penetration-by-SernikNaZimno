@@ -133,6 +133,80 @@ fn damage(ui: &mut egui::Ui, material: &mut Material) -> bool {
     changed
 }
 
+/// Properties of the models used for ceramics.
+fn ceramic(ui: &mut egui::Ui, material: &mut Material) -> bool {
+    let mut changed = false;
+    if let Eos::Polynomial(eos) = &mut material.eos {
+        changed |= row(ui, "Density", |ui| {
+            scaled(
+                ui,
+                &mut eos.reference_density,
+                1.0,
+                100.0..=30_000.0,
+                " kg/m³",
+            )
+        });
+        for (label, coefficient) in [
+            ("Bulk modulus K1", &mut eos.k1),
+            ("K2", &mut eos.k2),
+            ("K3", &mut eos.k3),
+        ] {
+            changed |= row(ui, label, |ui| {
+                scaled(ui, coefficient, 1.0e-9, -1000.0..=1000.0, " GPa")
+            });
+        }
+    }
+    if let Strength::JohnsonHolmquist(strength) = &mut material.strength {
+        changed |= row(ui, "Shear modulus", |ui| {
+            scaled(
+                ui,
+                &mut strength.shear_modulus,
+                1.0e-9,
+                0.1..=1000.0,
+                " GPa",
+            )
+        });
+        changed |= row(ui, "Stress at HEL", |ui| {
+            scaled(ui, &mut strength.hel_stress, 1.0e-9, 0.01..=100.0, " GPa")
+        });
+        let (mut hel_pressure, mut tension) = (strength.hel_pressure, strength.tensile_strength);
+        let edited = row(ui, "Pressure at HEL", |ui| {
+            scaled(ui, &mut hel_pressure, 1.0e-9, 0.01..=100.0, " GPa")
+        }) | row(ui, "Tensile strength T", |ui| {
+            scaled(ui, &mut tension, 1.0e-9, 0.0..=10.0, " GPa")
+        });
+        if edited {
+            // The damage model uses the same two values.
+            strength.hel_pressure = hel_pressure;
+            strength.tensile_strength = tension;
+            if let Damage::JohnsonHolmquist(damage) = &mut material.damage {
+                damage.hel_pressure = hel_pressure;
+                damage.tensile_strength = tension;
+            }
+            changed = true;
+        }
+        for (label, constant, upper) in [
+            ("Intact A", &mut strength.intact_coefficient, 5.0),
+            ("Intact N", &mut strength.intact_exponent, 5.0),
+            ("Fractured B", &mut strength.fractured_coefficient, 5.0),
+            ("Fractured M", &mut strength.fractured_exponent, 5.0),
+            ("Fractured limit", &mut strength.fractured_limit, 10.0),
+            ("Rate coefficient C", &mut strength.rate_coefficient, 1.0),
+        ] {
+            changed |= row(ui, label, |ui| scaled(ui, constant, 1.0, 0.0..=upper, ""));
+        }
+    }
+    if let Damage::JohnsonHolmquist(damage) = &mut material.damage {
+        changed |= row(ui, "Damage D1", |ui| {
+            scaled(ui, &mut damage.d1, 1.0, 1.0e-6..=10.0, "")
+        });
+        changed |= row(ui, "Damage D2", |ui| {
+            scaled(ui, &mut damage.d2, 1.0, 0.0..=10.0, "")
+        });
+    }
+    changed
+}
+
 fn properties(ui: &mut egui::Ui, material: &mut Material) -> bool {
     let mut changed = false;
     changed |= row(ui, "Name", |ui| {
@@ -141,6 +215,7 @@ fn properties(ui: &mut egui::Ui, material: &mut Material) -> bool {
     changed |= equation_of_state(ui, material);
     changed |= strength(ui, material);
     changed |= damage(ui, material);
+    changed |= ceramic(ui, material);
     changed |= row(ui, "Spall strength", |ui| {
         scaled(
             ui,
@@ -220,7 +295,15 @@ mod tests {
         extra.id = MaterialId::new("aluminium");
         let ids = available(&[extra, replacement]);
         let names: Vec<_> = ids.iter().map(MaterialId::as_str).collect();
-        assert_eq!(names, ["aluminium", "steel-4340", "tungsten-heavy-alloy"]);
+        assert_eq!(
+            names,
+            [
+                "aluminium",
+                "steel-4340",
+                "tungsten-heavy-alloy",
+                "alumina-99.5"
+            ]
+        );
     }
 
     #[test]
@@ -246,5 +329,13 @@ mod tests {
         assert_ne!(copy.id, steel.id);
         assert_eq!(copy.validate(), Ok(()));
         assert_eq!(copy.eos, steel.eos);
+    }
+
+    #[test]
+    fn every_built_in_material_can_be_duplicated() {
+        for material in library::builtin() {
+            let copy = duplicate(&material, &available(&[]));
+            assert_eq!(copy.validate(), Ok(()), "{}", material.id);
+        }
     }
 }

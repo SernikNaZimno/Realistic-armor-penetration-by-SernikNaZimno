@@ -1,13 +1,17 @@
 # Realistic armor penetration by SernikNaZimno
 
 A physics simulator of armor penetration in which both the armor and the
-penetrator deform. It uses the Material Point Method (MPM) with
-Johnson–Cook strength and damage and a Mie–Grüneisen equation of state.
+penetrator deform. It uses the Material Point Method (MPM). Metals follow
+Johnson–Cook strength and damage with a Mie–Grüneisen equation of state;
+ceramics follow the Johnson–Holmquist JH-2 model with a polynomial equation
+of state.
 
-Status: **M7 — three-dimensional models.** Oblique impacts are simulated in
-three dimensions on the CPU; perpendicular impacts stay axisymmetric and can
-also run on the GPU. A GPU port of the three-dimensional solver, ceramics
-and STL import are not implemented yet.
+Built-in materials: 4340 steel, tungsten heavy alloy and 99.5 % alumina.
+
+Status: **M8 — ceramics.** Armor layers can be ceramic, modelled with the
+Johnson–Holmquist JH-2 model, on the CPU solvers. STL import, user
+documentation and a GPU port of the three-dimensional solver are not
+implemented yet.
 
 ## Usage
 
@@ -92,6 +96,24 @@ The long-rod case uses 1 mm cells, so the rod is only four cells in radius;
 the Tate strengths are estimates of the flow stress of the two alloys, not
 fitted values.
 
+## Ceramics
+
+In JH-2 the strength of a ceramic rises with pressure and falls from an
+intact to a fractured curve as damage accumulates; fully fractured ceramic
+still resists shear while it is confined and is loose rubble once the
+pressure is gone. The solvers therefore treat failed ceramic differently
+from failed metal, which flows freely.
+
+Checked in the unit tests: built-in alumina compressed in uniaxial strain
+first yields at a longitudinal stress within 2 % of its Hugoniot elastic
+limit of 2.79 GPa, keeps a reduced strength after fracturing under
+pressure, and carries neither shear nor tension once released. In a coarse
+end-to-end run, a tungsten rod at 1500 m/s leaves 8 mm of steel at
+1323 m/s and 8 mm of alumina on 8 mm of steel at 1166 m/s; there is no
+reference value for that comparison.
+
+The bulking pressure of the original model is not included.
+
 ## Three-dimensional solver
 
 Checked in `crates/rap-solver-cpu/tests/solid.rs`:
@@ -157,6 +179,7 @@ See [ADR 0002](docs/adr/0002-gpu-solver.md) for the design.
 - The desktop application reassembles the model after every edit, which
   becomes slow at high resolution.
 - A run cannot be paused and resumed from a file.
+- Ceramics run on the CPU solvers only; the GPU solver refuses them.
 - Three-dimensional models run on the CPU only, with a serial
   particle-to-grid transfer; long rods at useful resolution are out of
   reach until that solver is ported to the GPU.
@@ -201,5 +224,7 @@ cargo run -p rap-cli
 - M5 — desktop application: projectile, armor (layers and face shape) and material editors, particle view, results
 - M6 — GPU solver for the two-dimensional models
 - M7 — three-dimensional models on the CPU (true oblique impact)
-- M8 — ceramics, STL import, user documentation
-- M9 — three-dimensional solver on the GPU
+- M8 — ceramics (Johnson–Holmquist JH-2)
+- M9 — armor shapes from STL files
+- M10 — user documentation
+- M11 — three-dimensional solver and ceramics on the GPU

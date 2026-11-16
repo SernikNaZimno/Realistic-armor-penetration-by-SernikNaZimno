@@ -166,7 +166,10 @@ fn update_material(
     particle.volume *= (time_step * divergence).exp();
     let density = particle.density();
 
-    if particle.is_failed() {
+    // Failed metal flows freely; fractured ceramic keeps a reduced,
+    // pressure-dependent strength that its strength model accounts for.
+    let flows_freely_when_failed = !material.strength.keeps_strength_when_failed();
+    if particle.is_failed() && flows_freely_when_failed {
         particle.plastic_strain_rate = 0.0;
     } else {
         // Trial elastic deviator: ṡ = 2G·dev(D) + W·s − s·W.
@@ -179,6 +182,8 @@ fn update_material(
             strain: particle.plastic_strain,
             strain_rate: particle.plastic_strain_rate,
             temperature: particle.temperature,
+            pressure: particle.pressure,
+            damage: particle.damage,
         };
         let yield_stress = material.strength.flow_stress(state);
         let equivalent = equivalent_stress(&trial);
@@ -206,14 +211,16 @@ fn update_material(
         particle.damage = 1.0;
     }
     if particle.is_failed() {
-        particle.deviator = DMat3::ZERO;
+        if flows_freely_when_failed {
+            particle.deviator = DMat3::ZERO;
+        }
         particle.pressure = particle.pressure.max(0.0);
     }
     particle.sound_speed = wave_speed(
         material,
         density,
         particle.specific_energy,
-        particle.is_failed(),
+        particle.is_failed() && flows_freely_when_failed,
     );
 
     let compression_rate = (-divergence).max(0.0);
