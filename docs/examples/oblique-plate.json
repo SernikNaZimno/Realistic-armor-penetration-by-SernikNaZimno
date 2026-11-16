@@ -1,0 +1,24 @@
+{
+  "format_version": 1,
+  "scenario": {
+    "projectile": {
+      "type": "apfsds",
+      "rod_diameter": 0.008,
+      "rod_length": 0.048,
+      "nose": { "shape": "hemisphere" },
+      "material": "tungsten-heavy-alloy"
+    },
+    "armor": {
+      "layers": [{ "material": "steel-4340", "thickness": 0.012 }],
+      "obliquity_deg": 60
+    },
+    "impact_speed": 1500
+  },
+  "settings": {
+    "cells_per_radius": 3,
+    "armor_extent_radii": 6,
+    "oblique_model": "solid",
+    "backend": "cpu",
+    "snapshots": 10
+  }
+}

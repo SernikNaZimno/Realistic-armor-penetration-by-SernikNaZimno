@@ -8,10 +8,10 @@ of state.
 
 Built-in materials: 4340 steel, tungsten heavy alloy and 99.5 % alumina.
 
-Status: **M8 — ceramics.** Armor layers can be ceramic, modelled with the
-Johnson–Holmquist JH-2 model, on the CPU solvers. STL import, user
-documentation and a GPU port of the three-dimensional solver are not
-implemented yet.
+Status: **M10 — user documentation.** See the [user guide](docs/user-guide.md)
+for building, the desktop application, the command line, the scenario file
+and how to read the results. Armor shapes from STL files (M9) and a GPU
+port of the three-dimensional solver are not implemented yet.
 
 ## Usage
 
@@ -226,5 +226,5 @@ cargo run -p rap-cli
 - M7 — three-dimensional models on the CPU (true oblique impact)
 - M8 — ceramics (Johnson–Holmquist JH-2)
 - M9 — armor shapes from STL files
-- M10 — user documentation
+- M10 — user documentation (done ahead of M9)
 - M11 — three-dimensional solver and ceramics on the GPU

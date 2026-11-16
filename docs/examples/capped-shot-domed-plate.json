@@ -1,0 +1,64 @@
+{
+  "format_version": 1,
+  "scenario": {
+    "projectile": {
+      "type": "apbc",
+      "caliber": 0.076,
+      "body_length": 0.2,
+      "nose": { "shape": "ogive", "caliber_radius_head": 1.0 },
+      "cap": { "length": 0.09, "wall_thickness": 0.004, "material": "steel-4340" },
+      "material": "hard-steel"
+    },
+    "armor": {
+      "layers": [{ "material": "steel-4340", "thickness": 0.05 }],
+      "obliquity_deg": 0,
+      "face_profile": [
+        { "lateral": 0.0, "offset": 0.0 },
+        { "lateral": 0.1, "offset": 0.01 },
+        { "lateral": 0.2, "offset": 0.04 }
+      ]
+    },
+    "impact_speed": 750
+  },
+  "settings": {
+    "cells_per_radius": 10,
+    "armor_extent_radii": 6,
+    "friction": 0.1,
+    "end_time": 0.0006
+  },
+  "materials": [
+    {
+      "id": "hard-steel",
+      "name": "Hardened shot steel",
+      "eos": {
+        "model": "mie_gruneisen",
+        "reference_density": 7830.0,
+        "bulk_sound_speed": 4569.0,
+        "hugoniot_slope": 1.49,
+        "gruneisen_gamma": 2.17
+      },
+      "strength": {
+        "model": "johnson_cook",
+        "shear_modulus": 77000000000.0,
+        "yield_stress": 1500000000.0,
+        "hardening_modulus": 510000000.0,
+        "hardening_exponent": 0.26,
+        "rate_coefficient": 0.014,
+        "thermal_exponent": 1.03,
+        "reference": { "strain_rate": 1.0, "temperature": 294.0, "melting_temperature": 1793.0 }
+      },
+      "damage": {
+        "model": "johnson_cook",
+        "d1": 0.05,
+        "d2": 3.44,
+        "d3": -2.12,
+        "d4": 0.002,
+        "d5": 0.61,
+        "reference": { "strain_rate": 1.0, "temperature": 294.0, "melting_temperature": 1793.0 }
+      },
+      "spall_strength": 3500000000.0,
+      "specific_heat": 477.0,
+      "taylor_quinney": 0.9
+    }
+  ]
+}

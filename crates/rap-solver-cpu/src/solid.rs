@@ -220,7 +220,10 @@ fn update_material(
         material,
         density,
         particle.specific_energy,
-        particle.is_failed() && flows_freely_when_failed,
+        // Failed material without confinement is loose: metal always,
+        // fractured ceramic once its pressure is gone. It has no shear
+        // stiffness to carry a faster wave.
+        particle.is_failed() && (flows_freely_when_failed || particle.pressure <= 0.0),
     );
 
     let compression_rate = (-divergence).max(0.0);

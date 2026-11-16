@@ -1,0 +1,26 @@
+{
+  "format_version": 1,
+  "scenario": {
+    "projectile": {
+      "type": "apfsds",
+      "rod_diameter": 0.008,
+      "rod_length": 0.08,
+      "nose": { "shape": "cone", "half_angle_deg": 20 },
+      "material": "tungsten-heavy-alloy"
+    },
+    "armor": {
+      "layers": [
+        { "material": "alumina-99.5", "thickness": 0.01 },
+        { "material": "steel-4340", "thickness": 0.01 },
+        { "material": "steel-4340", "thickness": 0.03, "gap_before": 0.02 }
+      ],
+      "obliquity_deg": 0
+    },
+    "impact_speed": 1500
+  },
+  "settings": {
+    "cells_per_radius": 6,
+    "armor_extent_radii": 8,
+    "snapshots": 30
+  }
+}
