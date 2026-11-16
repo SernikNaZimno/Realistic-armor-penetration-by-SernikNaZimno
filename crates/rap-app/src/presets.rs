@@ -14,6 +14,7 @@ fn steel_plate(thickness: f64) -> Armor {
             gap_before: 0.0,
         }],
         obliquity: 0.0,
+        face_profile: Vec::new(),
     }
 }
 

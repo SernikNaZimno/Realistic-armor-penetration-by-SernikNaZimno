@@ -34,6 +34,7 @@ fn scenario(layers: Vec<ArmorLayer>, obliquity_degrees: f64) -> Scenario {
         armor: Armor {
             layers,
             obliquity: obliquity_degrees.to_radians(),
+            face_profile: Vec::new(),
         },
         impact_speed: 1500.0,
     }
@@ -265,4 +266,56 @@ fn rod_is_stopped_by_a_thick_plate() {
     // A 40 mm rod at 1500 m/s penetrates roughly its own length.
     assert!(summary.penetration_depth > 0.02 && summary.penetration_depth < 0.07);
     assert!(summary.residual_speed.abs() < f64::EPSILON);
+}
+
+#[test]
+fn face_profile_shapes_every_layer() {
+    use rap_domain::ProfilePoint;
+    let mut shaped = scenario(vec![plate(0.01, 0.0), plate(0.02, 0.0)], 0.0);
+    // Flat within 10 mm of the shot line, then sloping 10 mm back by 20 mm
+    // and 5 mm forward of the centre from 30 mm outwards.
+    shaped.armor.face_profile = vec![
+        ProfilePoint {
+            lateral: 0.010,
+            offset: 0.0,
+        },
+        ProfilePoint {
+            lateral: 0.020,
+            offset: 0.010,
+        },
+        ProfilePoint {
+            lateral: 0.030,
+            offset: -0.005,
+        },
+    ];
+    let settings = SimulationSettings::default();
+    let assembly = assemble(&shaped, &settings, &[]).expect("the scenario is valid");
+    let layout = assembly.layout;
+    let spacing = layout.cell_size / 2.0;
+    // Position of the face at a given radius: the smallest x of armor there.
+    let face_at = |radius: f64| {
+        assembly
+            .model
+            .seeds
+            .iter()
+            .filter(|seed| seed.body == layout.armor_body)
+            .filter(|seed| (seed.position.y - layout.shot_line - radius).abs() < spacing)
+            .map(|seed| seed.position.x - layout.armor_face)
+            .fold(f64::MAX, f64::min)
+    };
+    assert!(face_at(0.005).abs() < spacing);
+    assert!((face_at(0.020) - 0.010).abs() < spacing);
+    assert!((face_at(0.035) - -0.005).abs() < spacing);
+    // The shot line still crosses the unshifted 30 mm of armor.
+    assert!((layout.armor_back - layout.armor_face - 0.03).abs() < 1e-12);
+    // The protruding rim does not start inside the projectile.
+    let tip = assembly
+        .model
+        .seeds
+        .iter()
+        .filter(|seed| seed.body == layout.projectile_body)
+        .map(|seed| seed.position.x)
+        .fold(f64::MIN, f64::max);
+    assert!(tip < layout.armor_face - 0.005);
+    assert_eq!(assembly.model.validate(), Ok(()));
 }

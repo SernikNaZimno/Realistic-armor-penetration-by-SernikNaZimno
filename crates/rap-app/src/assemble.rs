@@ -6,6 +6,9 @@
 //! modelled in plane strain, in which the projectile is a slab of the
 //! profile's thickness rather than a body of revolution.
 //!
+//! A face profile displaces the armor face, and every layer behind it,
+//! along the plate normal as a function of the distance from the shot line.
+//!
 //! All armor layers form one body, so adjacent layers are perfectly bonded.
 //! A ballistic cap is a body of its own.
 
@@ -249,25 +252,30 @@ pub fn assemble(
     let normal = DVec2::new(obliquity.cos(), obliquity.sin());
     let along_plate = DVec2::new(-obliquity.sin(), obliquity.cos());
     let half_width = settings.armor_extent_radii * radius;
+    // How far a shaped face reaches towards the projectile and away from it.
+    let (lowest_offset, highest_offset) = scenario.armor.face_offset_range();
+    let (protrusion, recess) = (-lowest_offset, highest_offset);
     let path_length = stack.thickness / obliquity.cos();
 
     // Positions along the shot line.
     let length = round_up(profile.length(), spacing);
-    let standoff = STANDOFF_CELLS * cell_size + radius * obliquity.tan();
-    let tilt_reach = half_width * obliquity.sin();
+    let standoff = STANDOFF_CELLS * cell_size + radius * obliquity.tan() + protrusion;
+    let tilt_reach = half_width * obliquity.sin() + protrusion;
     let armor_face = (wall + pad + length + standoff).max(wall + pad + tilt_reach);
     let tip = armor_face - standoff;
     let exit_space = (0.5 * length).max(MIN_EXIT_CELLS * cell_size);
-    let right =
-        armor_face + path_length.max(stack.thickness * obliquity.cos() + tilt_reach) + exit_space;
+    let armor_reach = path_length.max(stack.thickness * obliquity.cos() + tilt_reach) + recess;
+    let right = armor_face + armor_reach + exit_space;
 
     // Positions across the shot line.
     let side_pad = SIDE_PAD_CELLS * cell_size;
     let (shot_line, below, above) = match symmetry {
         Symmetry::Axisymmetric => (wall, 0.0, half_width),
         Symmetry::Planar => {
-            let below = (half_width * obliquity.cos()).max(radius);
-            let above = stack.thickness * obliquity.sin() + half_width * obliquity.cos();
+            let shape_reach = protrusion + recess;
+            let below = (half_width * obliquity.cos() + shape_reach).max(radius);
+            let above =
+                stack.thickness * obliquity.sin() + half_width * obliquity.cos() + shape_reach;
             (
                 wall + side_pad + round_up(below, spacing),
                 below,
@@ -339,10 +347,12 @@ pub fn assemble(
     .into_iter()
     .filter_map(|position| {
         let offset = position - face_point;
-        if offset.dot(along_plate).abs() > half_width {
+        let lateral = offset.dot(along_plate);
+        if lateral.abs() > half_width {
             return None;
         }
-        let material = stack.material_at(offset.dot(normal))?;
+        let depth = offset.dot(normal) - scenario.armor.face_offset(lateral);
+        let material = stack.material_at(depth)?;
         Some(ParticleSeed {
             position,
             velocity: DVec2::ZERO,

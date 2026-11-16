@@ -4,10 +4,10 @@ A physics simulator of armor penetration in which both the armor and the
 penetrator deform. It uses the Material Point Method (MPM) with
 Johnson–Cook strength and damage and a Mie–Grüneisen equation of state.
 
-Status: **M4 — scenario files and command line.** A scenario (projectile,
-layered armor, impact speed) is written as JSON, simulated from the command
-line and reported as a summary plus particle snapshots. The graphical editors
-and the GPU solver are not implemented yet.
+Status: **M5 — desktop application.** Projectile, armor and materials are
+edited in a window, simulated in the background and shown as particles with
+a results panel. The GPU solver and three-dimensional models are not
+implemented yet.
 
 ## Usage
 
@@ -19,13 +19,39 @@ cargo run --release -p rap-cli -- preset apfsds -o shot.json
 cargo run --release -p rap-cli -- run shot.json
 ```
 
+### Desktop application
+
+```bash
+cargo run --release -p rap-ui
+```
+
+- **Projectile:** APBC or APFSDS, dimensions, nose shape (flat, hemisphere,
+  cone, ogive), optional ballistic cap, material and impact speed.
+- **Armor:** obliquity; any number of layers with material, thickness and
+  gap; and a face shape given as displacement of the face against distance
+  from the shot line, which every layer follows.
+- **Materials:** built-in materials can be copied and their equation of
+  state, strength, damage and thermal properties edited; copies are stored
+  in the scenario file.
+- **Simulation:** resolution, armor half-width, friction and simulated time.
+- **View:** particles coloured by material, damage, plastic strain,
+  pressure, temperature or speed; drag to pan, scroll to zoom, double-click
+  to reset. An axisymmetric model is shown mirrored about its axis.
+- **Results:** depth along the shot line over time, perforation, residual
+  speed and mass, failed fractions.
+
+Scenarios are opened and saved in the same JSON format the command line
+uses.
+
+### Command line
+
 `preset` writes an example scenario (`apbc` or `apfsds`) to edit; `materials`
 lists the built-in materials; `run` simulates a scenario and writes
 `summary.json` and `particles_NNNN.vtk` snapshots (for ParaView) into
 `<scenario name>-results`.
 
 A scenario file holds the projectile, the armor layers with their materials,
-thicknesses, gaps and obliquity, the impact speed, optional numerical
+thicknesses and gaps, the obliquity and face shape, the impact speed, optional numerical
 `settings` (resolution, simulated time, friction, number of snapshots) and
 optional custom `materials`. Lengths are in metres, speeds in m/s and angles
 in degrees.
@@ -71,6 +97,10 @@ fitted values.
   strength, so a rod that perforates a plate is reported as largely failed
   debris, and the mass counted behind the armor includes that debris.
 - All armor layers are bonded to each other.
+- The armor face shape is the same on both sides of the shot line, and in an
+  axisymmetric model it is a surface of revolution.
+- The desktop application reassembles the model after every edit, which
+  becomes slow at high resolution.
 - A run cannot be paused and resumed from a file.
 
 ## Layout
@@ -108,6 +138,6 @@ cargo run -p rap-cli
 - M2 — 2D plane-strain CPU solver, validated with Taylor impact and plate impact
 - M3 — 2D penetration: contact, damage, spall, axisymmetry, comparison with the Tate model
 - M4 — scenario files (JSON), model assembly, CLI, VTK export
-- M5 — user interface: projectile editor (APBC, APFSDS), armor editor, viewer
+- M5 — desktop application: projectile, armor (layers and face shape) and material editors, particle view, results
 - M6 — GPU solver and 3D
 - M7 — ceramics, STL import, user documentation

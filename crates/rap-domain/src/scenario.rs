@@ -48,6 +48,7 @@ mod tests {
                     gap_before: 0.0,
                 }],
                 obliquity: 0.0,
+                face_profile: Vec::new(),
             },
             impact_speed,
         }

@@ -23,6 +23,7 @@ fn scenario(projectile: Projectile) -> Scenario {
                 },
             ],
             obliquity: 60.0_f64.to_radians(),
+            face_profile: Vec::new(),
         },
         impact_speed: 1600.0,
     }

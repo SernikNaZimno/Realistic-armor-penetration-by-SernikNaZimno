@@ -13,7 +13,7 @@ pub mod scenario;
 pub mod settings;
 pub mod validation;
 
-pub use armor::{Armor, ArmorLayer};
+pub use armor::{Armor, ArmorLayer, ProfilePoint};
 pub use material_id::MaterialId;
 pub use projectile::{ApbcProjectile, ApfsdsProjectile, BallisticCap, NoseShape, Projectile};
 pub use scenario::Scenario;
