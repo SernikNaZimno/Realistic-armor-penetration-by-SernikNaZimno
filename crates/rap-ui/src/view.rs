@@ -2,149 +2,29 @@
 
 use eframe::egui::{self, Align2, Color32, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::DVec2;
+pub(crate) use rap_render::Field;
+use rap_render::{Rgb, palette};
 use rap_solver::Particle;
 
-/// Colour stops of the scalar colour map, from low to high (viridis).
-const GRADIENT: [[f64; 3]; 5] = [
-    [68.0, 1.0, 84.0],
-    [59.0, 82.0, 139.0],
-    [33.0, 145.0, 140.0],
-    [94.0, 201.0, 98.0],
-    [253.0, 231.0, 37.0],
-];
-
-/// Colours of materials, by material index.
-const MATERIAL_COLORS: [[f64; 3]; 6] = [
-    [230.0, 145.0, 56.0],
-    [120.0, 144.0, 156.0],
-    [106.0, 168.0, 79.0],
-    [166.0, 77.0, 121.0],
-    [61.0, 133.0, 198.0],
-    [241.0, 194.0, 50.0],
-];
-
-/// Brightness of failed material relative to intact material.
-const FAILED_SHADE: f64 = 0.45;
 /// Limits of the zoom factor relative to fitting the whole model.
 const ZOOM_RANGE: (f32, f32) = (0.2, 80.0);
 /// Fraction of the panel the model fills at zoom 1.
 const FIT_MARGIN: f32 = 0.94;
 
-/// Quantity shown by the particle colours.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Field {
-    Material,
-    Damage,
-    PlasticStrain,
-    Pressure,
-    Temperature,
-    Speed,
-}
-
-impl Field {
-    pub(crate) const ALL: [Self; 6] = [
-        Self::Material,
-        Self::Damage,
-        Self::PlasticStrain,
-        Self::Pressure,
-        Self::Temperature,
-        Self::Speed,
-    ];
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Material => "Material",
-            Self::Damage => "Damage",
-            Self::PlasticStrain => "Plastic strain",
-            Self::Pressure => "Pressure [GPa]",
-            Self::Temperature => "Temperature [K]",
-            Self::Speed => "Speed [m/s]",
-        }
-    }
-
-    /// Value of the field at a particle, in the unit of the label.
-    pub(crate) fn value(self, particle: &Particle) -> f64 {
-        match self {
-            Self::Material => 0.0,
-            Self::Damage => particle.damage,
-            Self::PlasticStrain => particle.plastic_strain,
-            Self::Pressure => particle.pressure * 1.0e-9,
-            Self::Temperature => particle.temperature,
-            Self::Speed => particle.velocity.length(),
-        }
-    }
-
-    /// Range of values mapped onto the colour scale.
-    pub(crate) fn range(self, particles: &[Particle]) -> (f64, f64) {
-        if self == Self::Damage {
-            return (0.0, 1.0);
-        }
-        let (lowest, highest) = particles
-            .iter()
-            .map(|particle| self.value(particle))
-            .fold((f64::MAX, f64::MIN), |(lowest, highest), value| {
-                (lowest.min(value), highest.max(value))
-            });
-        if lowest > highest {
-            (0.0, 1.0)
-        } else if highest - lowest < 1.0e-12 {
-            (lowest, lowest + 1.0)
-        } else {
-            (lowest, highest)
-        }
-    }
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the value is clamped to the range of a colour channel"
-)]
-fn channel(value: f64) -> u8 {
-    value.round().clamp(0.0, 255.0) as u8
-}
-
-fn color(rgb: [f64; 3], shade: f64) -> Color32 {
-    Color32::from_rgb(
-        channel(rgb[0] * shade),
-        channel(rgb[1] * shade),
-        channel(rgb[2] * shade),
-    )
+fn rgb(color: Rgb) -> Color32 {
+    let [red, green, blue] = color;
+    Color32::from_rgb(red, green, blue)
 }
 
 /// Colour of the scalar colour map at `fraction` of the way from its low
 /// to its high end.
 pub(crate) fn gradient(fraction: f64) -> Color32 {
-    let scaled = if fraction.is_nan() {
-        0.0
-    } else {
-        fraction.clamp(0.0, 1.0) * 4.0
-    };
-    let (index, lower) = if scaled >= 3.0 {
-        (3, 3.0)
-    } else if scaled >= 2.0 {
-        (2, 2.0)
-    } else if scaled >= 1.0 {
-        (1, 1.0)
-    } else {
-        (0, 0.0)
-    };
-    let (from, to) = (GRADIENT[index], GRADIENT[index + 1]);
-    let blend = scaled - lower;
-    color(
-        [
-            from[0] + blend * (to[0] - from[0]),
-            from[1] + blend * (to[1] - from[1]),
-            from[2] + blend * (to[2] - from[2]),
-        ],
-        1.0,
-    )
+    rgb(palette::gradient(fraction))
 }
 
 /// Colour of a material; failed material is drawn darker.
 pub(crate) fn material_color(material: usize, failed: bool) -> Color32 {
-    let shade = if failed { FAILED_SHADE } else { 1.0 };
-    color(MATERIAL_COLORS[material % MATERIAL_COLORS.len()], shade)
+    rgb(palette::material(material, failed))
 }
 
 fn particle_color(particle: &Particle, field: Field, range: (f64, f64)) -> Color32 {

@@ -1,5 +1,7 @@
 //! Headless command-line front end.
 
+mod pictures;
+
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -11,6 +13,8 @@ use rap_domain::{APP_NAME, Backend};
 use rap_io::{ScenarioFile, vtk};
 use rap_materials::{EquationOfState, library};
 use serde_json::json;
+
+use crate::pictures::{Colouring, Pair, PictureOptions};
 
 /// Command-line arguments.
 #[derive(Debug, Parser)]
@@ -47,6 +51,24 @@ enum Command {
         /// Run on the graphics card, whatever the scenario file says.
         #[arg(long)]
         gpu: bool,
+        /// Write a picture of a three-dimensional model at every snapshot,
+        /// for assembling into a film.
+        #[arg(long)]
+        pictures: bool,
+        /// What the colours of the pictures show.
+        #[arg(long, value_enum, default_value = "material")]
+        colour_by: Colouring,
+        /// Viewing direction of the pictures: rotation about the vertical
+        /// axis and elevation, in degrees, such as `0,0` for a side view.
+        #[arg(long, value_name = "YAW,PITCH", allow_hyphen_values = true)]
+        view: Option<Pair<f32>>,
+        /// Size of the pictures, in pixels.
+        #[arg(long, value_name = "WIDTHxHEIGHT", default_value = "1280x720")]
+        picture_size: Pair<usize>,
+        /// Draw the whole model in the pictures instead of cutting it along
+        /// the shot line.
+        #[arg(long)]
+        whole: bool,
     },
 }
 
@@ -79,11 +101,19 @@ fn execute(command: Command, output: &mut impl Write) -> Result<()> {
             output_dir,
             no_snapshots,
             gpu,
+            pictures,
+            colour_by,
+            view,
+            picture_size,
+            whole,
         } => {
             let directory = output_dir.unwrap_or_else(|| default_output_directory(&scenario));
             let options = RunOptions {
                 snapshots: !no_snapshots,
                 force_gpu: gpu,
+                pictures: pictures
+                    .then(|| PictureOptions::new(colour_by, view, picture_size, whole))
+                    .transpose()?,
             };
             run(&scenario, &directory, options, output)
         }
@@ -140,6 +170,64 @@ struct RunOptions {
     snapshots: bool,
     /// Use the GPU solver regardless of the scenario's settings.
     force_gpu: bool,
+    /// Write pictures, drawn like this.
+    pictures: Option<PictureOptions>,
+}
+
+/// Prints what is about to be simulated and the heading of the progress
+/// table.
+fn announce(
+    output: &mut impl Write,
+    simulation: &Simulation,
+    symmetry: &str,
+    pictures: bool,
+) -> Result<()> {
+    let layout = simulation.layout();
+    writeln!(output, "{APP_NAME}")?;
+    writeln!(output, "Solver: {}", simulation.solver_name())?;
+    writeln!(
+        output,
+        "Model: {symmetry}, cell {:.3} mm, {} particles, {:.1} µs to simulate",
+        layout.cell_size * 1.0e3,
+        simulation.particle_count(),
+        layout.end_time * 1.0e6
+    )?;
+    if layout.kind == ModelKind::PlaneStrain {
+        writeln!(
+            output,
+            "Note: an oblique impact is modelled in plane strain; the projectile acts as a \
+             slab, not a body of revolution, so depths are indicative only."
+        )?;
+    }
+    if pictures && simulation.solid_particles().is_none() {
+        writeln!(
+            output,
+            "Note: pictures are drawn of three-dimensional models only; none will be written."
+        )?;
+    }
+    writeln!(
+        output,
+        "{:>10} {:>12} {:>14} {:>10}",
+        "time [µs]", "depth [mm]", "residual [m/s]", "failed"
+    )?;
+    Ok(())
+}
+
+/// The outcome of a run in one sentence.
+fn verdict(last: &rap_analysis::ImpactSummary) -> String {
+    if last.perforated {
+        format!(
+            "Perforated: {:.0} % of the projectile mass left the armor at {:.0} m/s.",
+            last.residual_mass_fraction * 100.0,
+            last.residual_speed
+        )
+    } else {
+        format!(
+            "Not perforated: the projectile reached {:.1} mm of {:.1} mm along the shot line.",
+            last.penetration_depth * 1.0e3,
+            last.armor_path_length * 1.0e3
+        )
+    }
 }
 
 fn run(
@@ -173,29 +261,11 @@ fn run(
         ModelKind::Solid if mesh.is_some() => "three-dimensional (whole model)",
         ModelKind::Solid => "three-dimensional (half model)",
     };
-    writeln!(output, "{APP_NAME}")?;
-    writeln!(output, "Solver: {}", simulation.solver_name())?;
-    writeln!(
-        output,
-        "Model: {symmetry}, cell {:.3} mm, {} particles, {:.1} µs to simulate",
-        layout.cell_size * 1.0e3,
-        simulation.particle_count(),
-        layout.end_time * 1.0e6
-    )?;
-    if layout.kind == ModelKind::PlaneStrain {
-        writeln!(
-            output,
-            "Note: an oblique impact is modelled in plane strain; the projectile acts as a \
-             slab, not a body of revolution, so depths are indicative only."
-        )?;
-    }
-    writeln!(
-        output,
-        "{:>10} {:>12} {:>14} {:>10}",
-        "time [µs]", "depth [mm]", "residual [m/s]", "failed"
-    )?;
+    announce(output, &simulation, symmetry, options.pictures.is_some())?;
 
     let mut history = Vec::new();
+    let mut frames = Vec::new();
+    let mut framing = pictures::Framing::default();
     let count = file.settings.snapshots;
     for index in 0..=count {
         let time = layout.end_time * f64::from(index) / f64::from(count);
@@ -216,23 +286,22 @@ fn run(
                 None => vtk::save_particles(&path, &simulation.particles())?,
             }
         }
+        if let Some(pictures) = &options.pictures {
+            let path = directory.join(format!("picture_{index:04}.png"));
+            if let Some(range) = pictures::save(&simulation, pictures, &mut framing, &path)? {
+                frames.push(json!({
+                    "file": path.file_name().map(|name| name.to_string_lossy()),
+                    "time": summary.time,
+                    "lowest": range.0,
+                    "highest": range.1,
+                }));
+            }
+        }
         history.push(summary);
     }
 
     let last = simulation.summary();
-    let verdict = if last.perforated {
-        format!(
-            "Perforated: {:.0} % of the projectile mass left the armor at {:.0} m/s.",
-            last.residual_mass_fraction * 100.0,
-            last.residual_speed
-        )
-    } else {
-        format!(
-            "Not perforated: the projectile reached {:.1} mm of {:.1} mm along the shot line.",
-            last.penetration_depth * 1.0e3,
-            last.armor_path_length * 1.0e3
-        )
-    };
+    let verdict = verdict(&last);
     writeln!(output, "{verdict}")?;
 
     let report = json!({
@@ -246,6 +315,10 @@ fn run(
         },
         "result": last,
         "history": history,
+        "pictures": options.pictures.map(|pictures| json!({
+            "colours": pictures.field.label(),
+            "frames": frames,
+        })),
     });
     let summary_path = directory.join("summary.json");
     fs::write(&summary_path, serde_json::to_string_pretty(&report)?)
@@ -261,7 +334,7 @@ mod tests {
     use clap::{CommandFactory, Parser};
     use rap_io::ScenarioFile;
 
-    use super::{Cli, Command, PresetKind, default_output_directory, execute};
+    use super::{Cli, Colouring, Command, Pair, PresetKind, default_output_directory, execute};
 
     fn report(command: Command) -> String {
         let mut output = Vec::new();
@@ -276,12 +349,29 @@ mod tests {
 
     #[test]
     fn arguments_are_parsed() {
-        let cli = Cli::parse_from(["rap", "run", "shot.json", "--no-snapshots", "-o", "out"]);
+        let cli = Cli::parse_from([
+            "rap",
+            "run",
+            "shot.json",
+            "--no-snapshots",
+            "-o",
+            "out",
+            "--pictures",
+            "--view",
+            "-20,35",
+            "--colour-by",
+            "speed",
+        ]);
         let Command::Run {
             scenario,
             output_dir,
             no_snapshots,
             gpu,
+            pictures,
+            colour_by,
+            view,
+            picture_size,
+            whole,
         } = cli.command
         else {
             panic!("expected the run command");
@@ -289,6 +379,10 @@ mod tests {
         assert_eq!(scenario, Path::new("shot.json"));
         assert_eq!(output_dir.as_deref(), Some(Path::new("out")));
         assert!(no_snapshots);
+        assert!(pictures && !whole);
+        assert_eq!(colour_by, Colouring::Speed);
+        assert_eq!(view, Some(Pair(-20.0, 35.0)));
+        assert_eq!(picture_size, Pair(1280, 720));
         assert!(!gpu);
         assert!(Cli::try_parse_from(["rap", "preset", "heat"]).is_err());
     }
@@ -337,6 +431,11 @@ mod tests {
             output_dir: None,
             no_snapshots: false,
             gpu: false,
+            pictures: false,
+            colour_by: Colouring::Material,
+            view: None,
+            picture_size: Pair(64, 48),
+            whole: false,
         });
         assert!(text.contains("axisymmetric"), "{text}");
         assert!(text.contains("Solver: CPU"), "{text}");
@@ -363,6 +462,44 @@ mod tests {
     }
 
     #[test]
+    fn pictures_are_written_for_a_solid_model() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let scenario = directory.path().join("oblique.json");
+        let mut file = rap_app::presets::apfsds_against_steel();
+        file.settings.cells_per_radius = 2.0;
+        file.settings.armor_extent_radii = 3.0;
+        file.settings.end_time = Some(2.0e-6);
+        file.settings.snapshots = 1;
+        let armor = file.scenario.armor.plates_mut().expect("plates");
+        armor.obliquity = 0.5;
+        armor.layers[0].thickness = 0.02;
+        file.save(&scenario).expect("the scenario is written");
+
+        let text = report(Command::Run {
+            scenario: scenario.clone(),
+            output_dir: None,
+            no_snapshots: true,
+            gpu: false,
+            pictures: true,
+            colour_by: Colouring::Material,
+            view: None,
+            picture_size: Pair(64, 48),
+            whole: false,
+        });
+        assert!(text.contains("three-dimensional"), "{text}");
+        let results = directory.path().join("oblique-results");
+        for name in ["picture_0000.png", "picture_0001.png"] {
+            let bytes = std::fs::read(results.join(name)).expect("a picture");
+            assert_eq!(&bytes[1..4], b"PNG", "{name}");
+        }
+        assert!(!results.join("particles_0000.vtk").exists());
+        let summary = std::fs::read_to_string(results.join("summary.json")).expect("a summary");
+        let summary: serde_json::Value = serde_json::from_str(&summary).expect("valid JSON");
+        assert_eq!(summary["pictures"]["colours"], "Material");
+        assert_eq!(summary["pictures"]["frames"][1]["file"], "picture_0001.png");
+    }
+
+    #[test]
     fn missing_scenario_is_reported() {
         let mut output = Vec::new();
         let command = Command::Run {
@@ -370,6 +507,11 @@ mod tests {
             output_dir: None,
             no_snapshots: true,
             gpu: false,
+            pictures: false,
+            colour_by: Colouring::Material,
+            view: None,
+            picture_size: Pair(64, 48),
+            whole: false,
         };
         let error = execute(command, &mut output).unwrap_err();
         assert!(error.to_string().contains("does-not-exist.json"));

@@ -19,6 +19,7 @@ rap-domain = { path = "crates/rap-domain" }
 rap-geometry = { path = "crates/rap-geometry" }
 rap-io = { path = "crates/rap-io" }
 rap-materials = { path = "crates/rap-materials" }
+rap-render = { path = "crates/rap-render" }
 rap-solver = { path = "crates/rap-solver" }
 rap-solver-cpu = { path = "crates/rap-solver-cpu" }
 rap-solver-gpu = { path = "crates/rap-solver-gpu" }
@@ -27,6 +28,7 @@ bytemuck = { version = "1", features = ["extern_crate_alloc"] }
 clap = { version = "4", features = ["derive"] }
 eframe = "0.31"
 glam = "0.30"
+png = "0.18"
 pollster = "0.4"
 proptest = "1"
 rayon = "1"

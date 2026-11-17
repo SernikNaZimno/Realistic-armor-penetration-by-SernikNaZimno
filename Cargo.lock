@@ -2781,10 +2781,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "glam",
+ "rap-analysis",
  "rap-app",
  "rap-domain",
  "rap-io",
  "rap-materials",
+ "rap-render",
  "serde_json",
  "tempfile",
 ]
@@ -2830,6 +2833,16 @@ dependencies = [
  "rap-domain",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rap-render"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "png",
+ "rap-solver",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2882,6 +2895,7 @@ dependencies = [
  "rap-geometry",
  "rap-io",
  "rap-materials",
+ "rap-render",
  "rap-solver",
  "rfd",
  "tempfile",

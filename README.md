@@ -281,6 +281,7 @@ for the design.
 | `rap-solver-cpu` | reference `f64` MPM solvers |
 | `rap-solver-gpu` | `f32` MPM solvers in wgpu compute shaders, checked against the CPU solvers |
 | `rap-analysis` | post-processing of results |
+| `rap-render` | pictures: colours, surface of the particles, PNG output |
 | `rap-io` | scenario files, STL meshes, VTK export |
 | `rap-app` | use cases shared by the front ends |
 | `rap-ui` | desktop interface (egui) |
@@ -317,6 +318,7 @@ cargo run -p rap-cli
 - M13 — three-dimensional view: shaded solids, section, orbiting camera
 - M14 — contact only where bodies touch, a sound measure of depth, hardened
   shell steel
+- M15 — pictures of a run from the command line, for films
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material

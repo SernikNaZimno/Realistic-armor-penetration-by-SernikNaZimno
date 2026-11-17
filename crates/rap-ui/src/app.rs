@@ -90,6 +90,8 @@ pub struct App {
     /// Surface of the particles last shown in three dimensions; `None`
     /// when they have changed since.
     surface: Option<Surface>,
+    /// Corners of the part of space the three-dimensional view shows.
+    framing: Option<(glam::Vec3, glam::Vec3)>,
     /// Outcome of the last file operation or start of a run, shown in the
     /// toolbar.
     message: Option<String>,
@@ -117,6 +119,7 @@ impl App {
             solid_view: true,
             section: true,
             surface: None,
+            framing: None,
             message: None,
         };
         app.rebuild_preview();
@@ -215,6 +218,7 @@ impl App {
             .refresh_mesh()
             .and_then(|()| Preview::new(&self.file, self.mesh()));
         self.surface = None;
+        self.framing = None;
     }
 
     /// Starts simulating the scenario. Does nothing if it is invalid or a
@@ -406,6 +410,7 @@ impl App {
                     .changed()
                 {
                     self.surface = None;
+                    self.framing = None;
                 }
             }
             if let Some(message) = &self.message {
@@ -564,6 +569,11 @@ impl App {
                 self.surface = self
                     .cloud()
                     .map(|cloud| Surface::extract(cloud, self.section));
+                // Keep showing the part of space the model first filled, so
+                // that it does not shift or shrink as debris spreads.
+                if let Some(surface) = &mut self.surface {
+                    surface.bounds = *self.framing.get_or_insert(surface.bounds);
+                }
             }
             if let Some(surface) = &self.surface {
                 view3d::show(ui, surface, self.field, &mut self.camera3);

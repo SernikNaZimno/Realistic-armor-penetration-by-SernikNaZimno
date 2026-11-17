@@ -1,0 +1,17 @@
+[package]
+name = "rap-render"
+description = "Pictures of a simulation: colours, the surface of the particles and PNG output."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+glam.workspace = true
+png.workspace = true
+rap-solver.workspace = true
+thiserror.workspace = true

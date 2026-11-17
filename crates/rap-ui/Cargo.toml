@@ -23,6 +23,7 @@ rap-domain.workspace = true
 rap-geometry.workspace = true
 rap-io.workspace = true
 rap-materials.workspace = true
+rap-render.workspace = true
 rap-solver.workspace = true
 rfd.workspace = true
 

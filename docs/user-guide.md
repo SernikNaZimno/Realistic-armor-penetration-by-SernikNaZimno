@@ -116,6 +116,24 @@ whether the armor was perforated. Options of `run`:
 | `-o`, `--output-dir <DIR>` | where to write the results; default `<scenario name>-results` next to the scenario |
 | `--no-snapshots` | write only the summary |
 | `--gpu` | use the GPU solver, whatever the scenario says |
+| `--pictures` | write `picture_NNNN.png` of a three-dimensional model at every snapshot |
+| `--colour-by <FIELD>` | what the pictures show: `material` (default), `damage`, `strain`, `pressure`, `temperature` or `speed` |
+| `--view <YAW,PITCH>` | viewing direction in degrees; `0,0` is a side view of the section |
+| `--picture-size <WIDTHxHEIGHT>` | size of the pictures; default `1280x720` |
+| `--whole` | draw the whole model in the pictures instead of cutting it along the shot line |
+
+The pictures are drawn like the three-dimensional view of the desktop
+application and keep the framing of the first one. For a film, set
+`snapshots` in the scenario to the number of frames, add `--no-snapshots`
+to leave out the large particle files, and join the pictures with a tool
+such as ffmpeg:
+
+```bash
+ffmpeg -framerate 30 -i picture_%04d.png -pix_fmt yuv420p film.mp4
+```
+
+The range of values behind the colours of every picture is listed in
+`summary.json`.
 
 ```bash
 cargo run --release -p rap-cli -- materials
