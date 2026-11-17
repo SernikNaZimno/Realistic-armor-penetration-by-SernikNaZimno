@@ -302,6 +302,7 @@ mod tests {
                 "steel-4340",
                 "tungsten-heavy-alloy",
                 "alumina-99.5",
+                "shell-steel",
                 "tnt-inert"
             ]
         );

@@ -2,7 +2,7 @@
 //! between bodies.
 
 use glam::DVec2;
-use rap_solver::{Grid, WALL_CELLS, Wall, Walls};
+use rap_solver::{Grid, WALL_CELLS, Wall, Walls, contact};
 
 /// Applies a wall with inward unit normal `inward` to a node velocity.
 pub(crate) fn apply_wall(velocity: DVec2, wall: Wall, inward: DVec2) -> DVec2 {
@@ -37,6 +37,20 @@ pub(crate) fn apply_walls(
         velocity = apply_wall(velocity, walls.top, DVec2::NEG_Y);
     }
     velocity
+}
+
+/// Whether a body touches the others sharing a grid node; see
+/// [`rap_solver::contact`].
+///
+/// `outward` is a vector along the body's outward surface normal, `reach`
+/// the vector from the centre of mass of the others to that of the body,
+/// reversed: the body's own arm from its centre to the node minus that of
+/// the others. `share` is the body's share of the mass at the node.
+pub(crate) fn touching(outward: DVec2, reach: DVec2, share: f64, cell_size: f64) -> bool {
+    let Some(normal) = outward.try_normalize() else {
+        return false;
+    };
+    contact::touches(reach.dot(normal) / cell_size, share.min(1.0 - share))
 }
 
 /// Resolves contact of one body with the others sharing a grid node.

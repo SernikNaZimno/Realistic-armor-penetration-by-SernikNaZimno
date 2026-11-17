@@ -253,9 +253,14 @@ Metals use `"model": "mie_gruneisen"` for `eos` and
 accuracy and cost. In two dimensions the cost grows roughly with its
 cube, in three with its fourth power. The default of 4 is for a quick
 look: in the built-in long-rod example the depth reached after 60 µs is
-39.8 mm at 4 cells per radius, 49.8 mm at 10 and 53.0 mm at 16. Use 10 or
+39.9 mm at 4 cells per radius, 48.8 mm at 10 and 52.7 mm at 16. Use 10 or
 more for numbers you intend to rely on, and compare two resolutions
 before trusting either.
+
+A full-caliber shell needs 12 cells per radius for a settled depth; see the
+[README](../README.md#full-caliber-shells-and-contact). Give such a shell
+the `shell-steel` material: of armor steel it flattens instead of
+penetrating.
 
 **Kind of model.** A perpendicular impact is always axisymmetric, which is
 exact and cheap. An oblique impact is three-dimensional by default, which
@@ -263,8 +268,8 @@ is faithful and expensive: the example in this guide, at 3 cells per
 radius, has 51 000 particles and takes 46 s, and a long rod at
 useful resolution needs millions. `"plane_strain"` is a fast
 approximation in which the projectile is a slab. In the one case compared,
-the example above, it let the rod through faster (1209 m/s against
-1116 m/s); it is only good for a qualitative look.
+the example above, it let the rod through faster (1231 m/s against
+1139 m/s); it is only good for a qualitative look.
 
 **Solver.** The GPU solver runs every kind of model and material and gives
 the same results as the CPU solver to four or more digits. How much faster
@@ -287,7 +292,7 @@ The summary reports, along the shot line:
 
 | Quantity | Meaning |
 |---|---|
-| depth | how far the projectile has advanced past the armor face, at most the length of the shot line inside the armor |
+| depth | the furthest the projectile has got past the armor face along the shot line at any time so far, at most the length of the shot line inside the armor; it is taken from intact material or from the foremost hundredth of the projectile's mass, so stray debris does not count. At a steep angle a projectile that slides along the face also advances along the shot line: look at the picture before reading the depth as penetration |
 | perforated | whether at least 1 % of the projectile mass is behind the armor and still moving at more than 5 % of the impact speed |
 | residual speed | mean speed along the shot line of the projectile material behind the armor |
 | residual mass | fraction of the projectile mass behind the armor, eroded debris included |

@@ -10,7 +10,7 @@
         "caliber_radius_head": 1.5
       },
       "cap": null,
-      "material": "steel-4340",
+      "material": "shell-steel",
       "filler": {
         "diameter": 0.05,
         "length": 0.12,

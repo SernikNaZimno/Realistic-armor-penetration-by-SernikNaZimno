@@ -8,6 +8,7 @@
 //! [`Symmetry`]); the [`solid`] module holds the three-dimensional
 //! counterparts.
 
+pub mod contact;
 pub mod model;
 pub mod particle;
 pub mod solid;

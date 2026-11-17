@@ -11,6 +11,8 @@ pub const TUNGSTEN_HEAVY_ALLOY: &str = "tungsten-heavy-alloy";
 
 /// Identifier of the built-in 99.5 % alumina ceramic.
 pub const ALUMINA: &str = "alumina-99.5";
+/// Identifier of the built-in hardened steel of armor-piercing shells.
+pub const SHELL_STEEL: &str = "shell-steel";
 /// Identifier of the built-in inert stand-in for a TNT bursting charge.
 pub const TNT_INERT: &str = "tnt-inert";
 

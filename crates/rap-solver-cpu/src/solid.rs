@@ -10,7 +10,7 @@ use rap_materials::{DamageModel, EquationOfState, Material, PlasticState, Streng
 use rap_solver::model::count_to_f64;
 use rap_solver::solid::equivalent_stress;
 use rap_solver::{
-    Grid3, Model3, Particle3, Solver3, SolverConfig, SolverError, WALL_CELLS, Wall, Walls3,
+    Grid3, Model3, Particle3, Solver3, SolverConfig, SolverError, WALL_CELLS, Wall, Walls3, contact,
 };
 use rayon::prelude::*;
 
@@ -109,6 +109,15 @@ fn apply_walls(mut velocity: DVec3, index: [usize; 3], nodes: [usize; 3], walls:
         }
     }
     velocity
+}
+
+/// Whether a body touches the others at a node; see
+/// `constraints::touching` for the two-dimensional version.
+fn touching(outward: DVec3, reach: DVec3, share: f64, cell_size: f64) -> bool {
+    let Some(normal) = outward.try_normalize() else {
+        return false;
+    };
+    contact::touches(reach.dot(normal) / cell_size, share.min(1.0 - share))
 }
 
 /// Contact of one body with the others at a node; see
@@ -452,6 +461,7 @@ impl MpmSolver3 {
         walls: Walls3,
         friction: f64,
     ) {
+        let cell_size = self.grid.cell_size;
         let mut total_mass = 0.0;
         let mut total_momentum = DVec3::ZERO;
         let mut total_outward = DVec3::ZERO;
@@ -484,8 +494,13 @@ impl MpmSolver3 {
             let unconstrained = field.work_velocity[node];
             let mut velocity = unconstrained;
             if mass < total_mass {
-                let outward = 2.0 * field.outward[node] - total_outward;
-                velocity = resolve_contact(velocity, centre, outward, friction);
+                let own = field.outward[node];
+                let outward = 2.0 * own - total_outward;
+                // From each centre of mass to the node.
+                let reach = own / mass - (total_outward - own) / (total_mass - mass);
+                if touching(outward, reach, mass / total_mass, cell_size) {
+                    velocity = resolve_contact(velocity, centre, outward, friction);
+                }
             }
             velocity = apply_walls(velocity, index, nodes, walls);
             dissipated += 0.5 * mass * (unconstrained - velocity).dot(before + velocity);

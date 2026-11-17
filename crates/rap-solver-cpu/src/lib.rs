@@ -297,9 +297,15 @@ impl MpmSolver {
                     let mut velocity = unconstrained;
                     if mass < total_mass {
                         // The normal separates this body from all others.
-                        let outward = 2.0 * field.outward[node] - total_outward;
-                        velocity =
-                            constraints::resolve_contact(velocity, centre, outward, friction);
+                        let own = field.outward[node];
+                        let outward = 2.0 * own - total_outward;
+                        // From each centre of mass to the node.
+                        let reach = own / mass - (total_outward - own) / (total_mass - mass);
+                        if constraints::touching(outward, reach, mass / total_mass, grid.cell_size)
+                        {
+                            velocity =
+                                constraints::resolve_contact(velocity, centre, outward, friction);
+                        }
                     }
                     velocity = constraints::apply_walls(velocity, i, j, &grid, walls);
                     // Kinetic energy removed by the constraint impulses,

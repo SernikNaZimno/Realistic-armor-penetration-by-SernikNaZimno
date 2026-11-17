@@ -29,6 +29,9 @@ pub struct Simulation {
     solver_name: String,
     layout: Layout,
     shot: ShotLine,
+    /// Greatest penetration depth found at any time the simulation was
+    /// advanced to, in m.
+    deepest: f64,
 }
 
 /// The particle of the two-dimensional picture that shows a particle of a
@@ -137,6 +140,7 @@ impl Simulation {
                 initial_projectile_mass: 0.0,
                 impact_speed: scenario.impact_speed,
             },
+            deepest: 0.0,
         };
         simulation.shot.initial_projectile_mass = simulation
             .tracers()
@@ -188,10 +192,12 @@ impl Simulation {
     /// # Errors
     /// Returns [`AppError::Solver`] if the solver state has become invalid.
     pub fn advance_to(&mut self, time: f64) -> Result<usize, AppError> {
-        Ok(match &mut self.engine {
+        let steps = match &mut self.engine {
             Engine::Flat(solver) => solver.run_until(time)?,
             Engine::Solid(solver) => solver.run_until(time)?,
-        })
+        };
+        self.deepest = self.summary().penetration_depth;
+        Ok(steps)
     }
 
     /// The particles of a solid model that lie just above the plane its
@@ -256,9 +262,13 @@ impl Simulation {
         }
     }
 
-    /// Outcome of the impact so far.
+    /// Outcome of the impact so far. The penetration depth is the greatest
+    /// found now or at any time the simulation was advanced to: a
+    /// projectile that is thrown back out of its crater has still made it.
     #[must_use]
     pub fn summary(&self) -> ImpactSummary {
-        summarize_tracers(&self.tracers(), &self.shot, self.time())
+        let mut summary = summarize_tracers(&self.tracers(), &self.shot, self.time());
+        summary.penetration_depth = summary.penetration_depth.max(self.deepest);
+        summary
     }
 }

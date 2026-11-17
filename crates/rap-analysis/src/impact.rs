@@ -11,6 +11,13 @@ const PERFORATION_MASS_FRACTION: f64 = 0.01;
 /// rear face ends up behind the back plane too, but at rest.
 const PERFORATION_SPEED_FRACTION: f64 = 0.05;
 
+/// Fraction of the projectile mass that failed material must amount to
+/// before the depth it has reached counts as penetration. Failed material
+/// has no strength, and a particle or two of it can be driven far ahead of
+/// the projectile; the debris of an eroding rod at the bottom of its crater
+/// is far more than this.
+const DEBRIS_MASS_FRACTION: f64 = 0.01;
+
 /// Where the shot line crosses the armor and which bodies take part. The
 /// shot line runs along `x`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -75,7 +82,9 @@ pub struct ImpactSummary {
     /// Simulation time, in s.
     pub time: f64,
     /// Distance the penetrator has advanced past the armor face along the
-    /// shot line, limited to the armor path length, in m.
+    /// shot line, limited to the armor path length, in m: the foremost
+    /// intact material, or the foremost hundredth of the mass, failed or
+    /// not, if that is further.
     pub penetration_depth: f64,
     /// Length of the shot line inside the armor, gaps included, in m.
     pub armor_path_length: f64,
@@ -105,6 +114,20 @@ fn failed_fraction(tracers: &[Tracer], body: usize) -> f64 {
     if total > 0.0 { failed / total } else { 0.0 }
 }
 
+/// Position along the shot line beyond which `points`, given as position
+/// and mass, hold `mass`; the least position if they hold less.
+fn foremost_share(mut points: Vec<(f64, f64)>, mass: f64) -> f64 {
+    points.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut ahead = 0.0;
+    for (along, point_mass) in &points {
+        ahead += point_mass;
+        if ahead >= mass {
+            return *along;
+        }
+    }
+    points.last().map_or(f64::MIN, |point| point.0)
+}
+
 /// Measures the state of an impact from `tracers` at `time`.
 #[must_use]
 pub fn summarize_tracers(tracers: &[Tracer], shot: &ShotLine, time: f64) -> ImpactSummary {
@@ -115,9 +138,16 @@ pub fn summarize_tracers(tracers: &[Tracer], shot: &ShotLine, time: f64) -> Impa
             .filter(|tracer| tracer.body == shot.projectile_body)
     };
 
-    let deepest = projectile()
+    let foremost_intact = projectile()
+        .filter(|tracer| !tracer.failed)
         .map(|tracer| tracer.along)
         .fold(f64::MIN, f64::max);
+    let deepest = foremost_intact.max(foremost_share(
+        projectile()
+            .map(|tracer| (tracer.along, tracer.mass))
+            .collect(),
+        DEBRIS_MASS_FRACTION * shot.initial_projectile_mass,
+    ));
     let (residual_mass, residual_momentum) = projectile()
         .filter(|tracer| tracer.along > shot.armor_back)
         .fold((0.0, 0.0), |(mass, momentum), tracer| {
@@ -197,6 +227,23 @@ mod tests {
         assert!(!summary.perforated);
         assert!((summary.projectile_failed_fraction - 0.5).abs() < 1e-12);
         assert!((summary.armor_failed_fraction - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn lone_failed_particles_ahead_of_the_projectile_do_not_set_the_depth() {
+        let shot = ShotLine {
+            initial_projectile_mass: 1000.0,
+            ..SHOT
+        };
+        let mut tracers = vec![tracer(0.12, 100.0, 0, false); 997];
+        // Three failed particles squeezed ahead: 0.3 % of the mass.
+        tracers.extend([0.135, 0.14, 0.145].map(|along| tracer(along, 0.0, 0, true)));
+        let summary = summarize_tracers(&tracers, &shot, 1.0e-4);
+        assert!((summary.penetration_depth - 0.02).abs() < 1e-12);
+        // Enough debris does count: the bottom of an eroding rod's crater.
+        tracers.extend(vec![tracer(0.13, 0.0, 0, true); 20]);
+        let summary = summarize_tracers(&tracers, &shot, 1.0e-4);
+        assert!((summary.penetration_depth - 0.03).abs() < 1e-12);
     }
 
     #[test]

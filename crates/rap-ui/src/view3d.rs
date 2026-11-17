@@ -701,11 +701,13 @@ mod tests {
         assert!(left.color.r() > right.color.r() + 40);
     }
 
-    /// Writes pictures of the shell example for a look at what the view
-    /// draws: `RAP_PICTURES=<folder> cargo test -p rap-ui pictures -- --ignored`.
+    /// Writes pictures of a scenario for a look at what the view draws:
+    /// `RAP_PICTURES=<folder> RAP_SCENARIO=<file> RAP_TIMES=<µs,µs,...>
+    /// cargo test -p rap-ui pictures -- --ignored`. The scenario defaults
+    /// to the shell example and the times to three instants.
     #[test]
     #[ignore = "writes files; a development aid, not a check"]
-    fn pictures_of_the_shell_example() {
+    fn pictures_of_a_scenario() {
         use std::fmt::Write as _;
 
         use rap_app::{Simulation, presets};
@@ -713,13 +715,25 @@ mod tests {
         let Ok(folder) = std::env::var("RAP_PICTURES") else {
             return;
         };
-        let mut file = presets::aphe_against_cast_armor();
+        let mut file = match std::env::var("RAP_SCENARIO") {
+            Ok(path) => rap_io::ScenarioFile::load(std::path::Path::new(&path))
+                .expect("the scenario file is readable"),
+            Err(_) => presets::aphe_against_cast_armor(),
+        };
+        let times: Vec<f64> = std::env::var("RAP_TIMES")
+            .unwrap_or_else(|_| "0,300,900".to_owned())
+            .split(',')
+            .map(|time| time.trim().parse::<f64>().expect("times are numbers") * 1.0e-6)
+            .collect();
         file.settings.backend = rap_domain::Backend::Gpu;
         let mut simulation = Simulation::new(&file.scenario, &file.settings, &file.materials)
-            .expect("the preset runs on this machine");
+            .expect("the scenario runs on this machine");
+        eprintln!("{} particles", simulation.particle_count());
         let rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(900.0, 600.0));
-        for (name, time) in [("start", 0.0), ("early", 3.0e-4), ("late", 9.0e-4)] {
+        for time in times {
+            let name = format!("{:04.0}", time * 1.0e6);
             simulation.advance_to(time).expect("the run stays valid");
+            eprintln!("{name} µs: {:?}", simulation.summary());
             let layout = simulation.layout();
             let particles = simulation.solid_particles().expect("a solid model");
             let cloud = Cloud::new(
@@ -729,8 +743,22 @@ mod tests {
                 layout.armor_body,
             );
             let surface = Surface::extract(&cloud, true);
-            for (field, label) in [(Field::Material, "material"), (Field::Speed, "speed")] {
-                let mesh = surface_mesh(&surface, field, &Camera3::default(), rect);
+            let angle = |name: &str, default: f32| {
+                std::env::var(name)
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(default)
+            };
+            let camera = Camera3 {
+                yaw: angle("RAP_YAW", Camera3::default().yaw),
+                pitch: angle("RAP_PITCH", Camera3::default().pitch),
+                ..Camera3::default()
+            };
+            for (field, label) in [
+                (Field::Material, "material"),
+                (Field::PlasticStrain, "strain"),
+            ] {
+                let mesh = surface_mesh(&surface, field, &camera, rect);
                 let mut svg = String::from(
                     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 900 600\"                      style=\"background:#1b1b1b\">
 ",

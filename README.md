@@ -6,8 +6,8 @@ Johnson–Cook strength and damage with a Mie–Grüneisen equation of state;
 ceramics follow the Johnson–Holmquist JH-2 model with a polynomial equation
 of state.
 
-Built-in materials: 4340 steel, tungsten heavy alloy, 99.5 % alumina and
-inert TNT for the bursting charge of a shell.
+Built-in materials: 4340 steel, hardened shell steel, tungsten heavy alloy,
+99.5 % alumina and inert TNT for the bursting charge of a shell.
 
 Status: **M11 — everything on the GPU.** The armor can be an array of
 plates or a solid of any shape read from an STL file, and every kind of
@@ -96,14 +96,42 @@ The solver is checked against analytical solutions in
 | Taylor bar, plane strain, 200 m/s | final / initial length | 0.866 | 0.862 (Wilkins–Guinan estimate) |
 | Taylor cylinder, axisymmetric, 200 m/s | final / initial length | 0.859 | 0.842 (Wilkins–Guinan estimate) |
 | | total energy drift | −0.0001 % | 0 |
-| Elastic bar striking an equal bar, 20 m/s | speed handed to the struck bar | 90 % | 100 % (1D wave theory) |
+| Elastic bar striking an equal bar, 20 m/s | speed handed to the struck bar | 91 % | 100 % (1D wave theory) |
 | | momentum drift | 10⁻¹⁴ | 0 |
-| Tungsten rod, L/D = 10, into steel, 1500 m/s | penetration / rod length | 0.98 | 0.87 (Alekseevskii–Tate, Y_p = 1.5 GPa, R_t = 4.5 GPa) |
+| Tungsten rod, L/D = 10, into steel, 1500 m/s | penetration / rod length | 0.97 | 0.87 (Alekseevskii–Tate, Y_p = 1.5 GPa, R_t = 4.5 GPa) |
 | | crater / rod radius | 1.9 | — |
 
 The long-rod case uses 1 mm cells, so the rod is only four cells in radius;
 the Tate strengths are estimates of the flow stress of the two alloys, not
 fitted values.
+
+## Full-caliber shells and contact
+
+A full-caliber shell penetrates as a nearly rigid body, so how wide the
+solver takes it to be matters. Bodies are in contact only at grid nodes
+where their surfaces touch
+([ADR 0006](docs/adr/0006-contact-only-where-bodies-touch.md)); without
+that test they interact across a gap of about two cells and the depth never
+settles. The 152 mm shell of the examples, of hardened shell steel, striking
+thick 4340 steel head-on at 810 m/s:
+
+| Cells per radius | 6 | 8 | 12 | 16 | 20 |
+|---|---|---|---|---|---|
+| Depth, contact wherever bodies share a node | — | 97 mm | 118 mm | 132 mm | 147 mm |
+| Depth, contact where bodies touch | 127 mm | 148 mm | 166 mm | 166 mm | 170 mm |
+
+The depth has settled by 12 cells per radius. About 205 mm is commonly
+quoted for this gun at that speed; that figure and the parameters of both
+steels are not from primary sources, so the comparison shows the right
+order, not agreement. The same shell with armor steel instead of shell
+steel flattens against the plate and reaches about two thirds of the
+depth.
+
+Against 245 mm at a compound angle of 30° by 30°
+([aphe-turret-cheek.json](docs/examples/aphe-turret-cheek.json)), at 8
+cells per radius, the shell gouges the plate, breaks at the nose (49 % of
+it failed after 1.1 ms) and does not get through. At the 4 cells per radius
+of the example file the result is only indicative.
 
 ## Ceramics
 
@@ -118,7 +146,7 @@ first yields at a longitudinal stress within 2 % of its Hugoniot elastic
 limit of 2.79 GPa, keeps a reduced strength after fracturing under
 pressure, and carries neither shear nor tension once released. In a coarse
 end-to-end run, a tungsten rod at 1500 m/s leaves 8 mm of steel at
-1323 m/s and 8 mm of alumina on 8 mm of steel at 1166 m/s; there is no
+1354 m/s and 8 mm of alumina on 8 mm of steel at 1201 m/s; there is no
 reference value for that comparison.
 
 The bulking pressure of the original model is not included.
@@ -136,9 +164,9 @@ Checked in `crates/rap-solver-cpu/tests/solid.rs`:
 
 The example [oblique-plate.json](docs/examples/oblique-plate.json), a
 tungsten rod (8 mm by 48 mm) striking a 12 mm steel plate at 60° and
-1500 m/s at 3 cells per radius, leaves with 86 % of its mass at 1116 m/s
+1500 m/s at 3 cells per radius, leaves with 92 % of its mass at 1139 m/s
 in the three-dimensional model (50 916 particles, 46 s on the CPU) and
-with 96 % at 1209 m/s in plane strain (2 216 particles, about a second).
+with 97 % at 1231 m/s in plane strain (2 216 particles, about a second).
 There is no reference solution for this case; the difference only shows
 that the plane-strain shortcut is not a substitute.
 
@@ -155,14 +183,14 @@ Checked in `crates/rap-geometry` and `crates/rap-app/tests/mesh_armor.rs`:
 a box and an octahedron are filled to their volumes, also when lattice
 lines pass exactly through edges and corners; a mesh with a hole is
 refused; and a 6 mm plate given as a mesh and struck at 45° by a tungsten
-rod at 1500 m/s lets it through at 1013 m/s, against 1034 m/s for the same
+rod at 1500 m/s lets it through at 1132 m/s, against 1140 m/s for the same
 plate given as layers in the half model.
 
 The example [cast-dome.json](docs/examples/cast-dome.json) fires an 8 mm by
 48 mm tungsten rod at 1500 m/s into the 30 mm wall of a hollow steel dome,
 off its axis, where the way through the wall is 31.5 mm. At 3 cells per
 radius the model has 183 479 particles and takes 183 s on the CPU; the
-rod leaves the wall with 76 % of its mass at 803 m/s. There is no reference
+rod leaves the wall with 80 % of its mass at 817 m/s. There is no reference
 value for this case.
 
 See [ADR 0004](docs/adr/0004-armor-from-stl-meshes.md) for the design.
@@ -178,13 +206,13 @@ two take the same number of steps and agree as follows
 |---|---|---|---|
 | Steel plates, ±500 m/s | shock pressure | 20.7397 GPa | 20.7397 GPa |
 | Taylor cylinder, 200 m/s | final / initial length | 0.85891 | 0.85890 |
-| Elastic bar collision, 20 m/s | struck bar speed | 17.957 m/s | 17.955 m/s |
-| Tungsten rod into steel, 1500 m/s, 90 µs | depth | 46.290 mm | 46.290 mm |
-| Rod into an alumina tile on steel, 4 µs | failed fraction of the tile | 0.4647 | 0.4647 |
-| | mean equivalent stress in the tile | 233.40 MPa | 233.40 MPa |
+| Elastic bar collision, 20 m/s | struck bar speed | 18.240 m/s | 18.236 m/s |
+| Tungsten rod into steel, 1500 m/s, 90 µs | depth | 46.303 mm | 46.303 mm |
+| Rod into an alumina tile on steel, 4 µs | failed fraction of the tile | 0.3944 | 0.3944 |
+| | mean equivalent stress in the tile | 270.08 MPa | 270.08 MPa |
 | 3D: steel plates, ±500 m/s | shock pressure | 20.8177 GPa | 20.8176 GPa |
-| 3D: rod into a plate at 45°, 16 µs | rod velocity | (805.2, −176.0, 41.3) m/s | (805.2, −176.0, 41.3) m/s |
-| | failed fraction of the plate | 0.0728 | 0.0728 |
+| 3D: rod into a plate at 45°, 16 µs | rod velocity | (903.6, −37.4, 23.9) m/s | (903.6, −37.4, 23.9) m/s |
+| | failed fraction of the plate | 0.0859 | 0.0859 |
 
 Time for the first 60 µs of the APFSDS preset on an AMD Radeon integrated
 GPU against a 16-thread CPU:
@@ -207,7 +235,7 @@ is 144 bytes, so on an integrated GPU, which shares the memory of the
 processor, the gain is small. A discrete GPU has not been tried.
 
 The two-dimensional runs also show that the default resolution is coarse: the depth reached
-after 60 µs is 39.8 mm at 4 cells per radius, 49.8 mm at 10 and 53.0 mm at
+after 60 µs is 39.9 mm at 4 cells per radius, 48.8 mm at 10 and 52.7 mm at
 16, so results at the default setting are not converged.
 
 See [ADR 0002](docs/adr/0002-gpu-solver.md) and
@@ -287,6 +315,8 @@ cargo run -p rap-cli
 
 - M12 — full-caliber shells with a bursting charge (APHE), inert
 - M13 — three-dimensional view: shaded solids, section, orbiting camera
+- M14 — contact only where bodies touch, a sound measure of depth, hardened
+  shell steel
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material

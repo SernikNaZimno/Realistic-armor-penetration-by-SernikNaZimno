@@ -4,7 +4,7 @@ use std::f64::consts::FRAC_PI_2;
 
 use serde::{Deserialize, Serialize};
 
-use crate::material_id::{MaterialId, STEEL_4340, TNT_INERT, TUNGSTEN_HEAVY_ALLOY};
+use crate::material_id::{MaterialId, SHELL_STEEL, STEEL_4340, TNT_INERT, TUNGSTEN_HEAVY_ALLOY};
 use crate::validation::{self, InvalidParameter};
 
 /// Shape of the front of a body of revolution.
@@ -145,7 +145,7 @@ impl ApbcProjectile {
                 caliber_radius_head: 1.5,
             },
             cap: None,
-            material: MaterialId::new(STEEL_4340),
+            material: MaterialId::new(SHELL_STEEL),
             filler: Some(Filler {
                 diameter: 0.05,
                 length: 0.12,

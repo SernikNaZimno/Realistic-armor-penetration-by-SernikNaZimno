@@ -376,7 +376,16 @@ fn grid(@builtin(global_invocation_id) id: vec3<u32>) {
             velocity = unconstrained[body];
             if mass[body] < total_mass {
                 let centre = total_momentum / total_mass;
-                velocity = resolve_contact(velocity, centre, 2.0 * outward[body] - total_outward);
+                let normal = 2.0 * outward[body] - total_outward;
+                // From each centre of mass to the node.
+                let reach = outward[body] / mass[body]
+                    - (total_outward - outward[body]) / (total_mass - mass[body]);
+                let span = length(normal);
+                if span > 0.0
+                    && touches(dot(reach, normal) / (span * cell), mass[body] / total_mass)
+                {
+                    velocity = resolve_contact(velocity, centre, normal);
+                }
             }
             velocity = apply_walls(velocity, id);
             dissipated += 0.5 * mass[body]

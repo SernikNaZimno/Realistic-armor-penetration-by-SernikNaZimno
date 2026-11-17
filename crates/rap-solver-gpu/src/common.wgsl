@@ -22,6 +22,10 @@ const STRENGTH_JOHNSON_HOLMQUIST: u32 = 1u;
 const DAMAGE_JOHNSON_COOK: u32 = 0u;
 const DAMAGE_JOHNSON_HOLMQUIST: u32 = 1u;
 
+// How much further apart than touching, in cells, the centres of two
+// bodies may be and still count as in contact.
+const CONTACT_MARGIN: f32 = 0.02;
+
 // Smallest fracture strain, so that damage increments stay finite.
 const MIN_FAILURE_STRAIN: f32 = 1.0e-6;
 
@@ -275,6 +279,36 @@ fn close_point(material: Material, point: ptr<function, Point>, density: f32) ->
             sqrt(state.y * state.y + 4.0 * material.shear_modulus / (3.0 * density));
     }
     return fluid;
+}
+
+// ---------------------------------------------------------------- contact
+
+// Distance, in cells, between the kernel-weighted centres of mass of two
+// bodies that touch along a plane, when the smaller body holds `share_in`
+// of the mass at a node. See `rap_solver::contact` for the derivation.
+fn touching_separation(share_in: f32) -> f32 {
+    let share = min(max(share_in, 1.0e-9), 0.5);
+    var moment = 0.0;
+    if share <= 1.0 / 6.0 {
+        let depth = pow(6.0 * share, 1.0 / 3.0);
+        moment = 0.25 * depth * depth * depth - 0.125 * depth * depth * depth * depth;
+    } else {
+        let missing = 0.5 - share;
+        var distance = missing / 0.75;
+        for (var step = 0; step < 4; step++) {
+            distance -= (distance * distance * distance / 3.0 - 0.75 * distance + missing)
+                / (distance * distance - 0.75);
+        }
+        let squared = distance * distance;
+        moment = 0.203125 - 0.375 * squared + 0.25 * squared * squared;
+    }
+    return moment / (share * (1.0 - share));
+}
+
+// Whether two bodies whose centres are `separation` cells apart along the
+// contact normal touch.
+fn touches(separation: f32, share: f32) -> bool {
+    return separation <= touching_separation(min(share, 1.0 - share)) + CONTACT_MARGIN;
 }
 
 // Artificial bulk-viscosity pressure of a point being compressed.
