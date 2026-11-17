@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use glam::{DMat3, DVec3};
 use rap_materials::{DamageModel, EquationOfState, Material, PlasticState, StrengthModel};
 use rap_solver::model::count_to_f64;
-use rap_solver::solid::equivalent_stress;
+use rap_solver::solid::{equivalent_stress, largest_principal};
 use rap_solver::{
     Grid3, Model3, Particle3, Solver3, SolverConfig, SolverError, WALL_CELLS, Wall, Walls3, contact,
 };
@@ -117,7 +117,7 @@ fn touching(outward: DVec3, reach: DVec3, share: f64, cell_size: f64) -> bool {
     let Some(normal) = outward.try_normalize() else {
         return false;
     };
-    contact::touches(reach.dot(normal) / cell_size, share.min(1.0 - share))
+    contact::touches(reach.dot(normal) / cell_size, share)
 }
 
 /// Contact of one body with the others at a node; see
@@ -216,7 +216,12 @@ fn update_material(
     }
 
     particle.pressure = material.eos.pressure(density, particle.specific_energy);
-    if particle.pressure < -material.spall_strength {
+    let largest_stress = largest_principal(&particle.deviator) - particle.pressure;
+    if particle.pressure < -material.spall_strength
+        || material
+            .tensile_strength
+            .is_some_and(|limit| largest_stress > limit)
+    {
         particle.damage = 1.0;
     }
     if particle.is_failed() {
@@ -464,7 +469,6 @@ impl MpmSolver3 {
         let cell_size = self.grid.cell_size;
         let mut total_mass = 0.0;
         let mut total_momentum = DVec3::ZERO;
-        let mut total_outward = DVec3::ZERO;
         for field in &mut self.fields {
             let mass = field.mass[node];
             if mass <= 0.0 {
@@ -476,16 +480,21 @@ impl MpmSolver3 {
             field.work_velocity[node] = unconstrained;
             total_mass += mass;
             total_momentum += mass * unconstrained;
-            total_outward += field.outward[node];
         }
         if total_mass <= 0.0 {
             self.node_heat[node] = 0.0;
             return;
         }
         let centre = total_momentum / total_mass;
+        // Mass and outward vector of every body at the node, for the sums
+        // over the other bodies below.
+        let mut shares = [(0.0, DVec3::ZERO); rap_solver::model::MAX_BODIES];
+        for (share, field) in shares.iter_mut().zip(&self.fields) {
+            *share = (field.mass[node], field.outward[node]);
+        }
 
         let mut dissipated = 0.0;
-        for field in &mut self.fields {
+        for (body, field) in self.fields.iter_mut().enumerate() {
             let mass = field.mass[node];
             if mass <= 0.0 {
                 continue;
@@ -493,12 +502,22 @@ impl MpmSolver3 {
             let before = field.velocity[node];
             let unconstrained = field.work_velocity[node];
             let mut velocity = unconstrained;
-            if mass < total_mass {
+            // Summed one by one so that two bodies see exactly each
+            // other's values; see the two-dimensional solver.
+            let (others_mass, others_outward) = shares
+                .iter()
+                .enumerate()
+                .filter(|(other, share)| *other != body && share.0 > 0.0)
+                .fold((0.0, DVec3::ZERO), |sum, (_, share)| {
+                    (sum.0 + share.0, sum.1 + share.1)
+                });
+            if others_mass > 0.0 {
                 let own = field.outward[node];
-                let outward = 2.0 * own - total_outward;
+                let outward = own - others_outward;
                 // From each centre of mass to the node.
-                let reach = own / mass - (total_outward - own) / (total_mass - mass);
-                if touching(outward, reach, mass / total_mass, cell_size) {
+                let reach = own / mass - others_outward / others_mass;
+                let share = mass.min(others_mass) / (mass + others_mass);
+                if touching(outward, reach, share, cell_size) {
                     velocity = resolve_contact(velocity, centre, outward, friction);
                 }
             }

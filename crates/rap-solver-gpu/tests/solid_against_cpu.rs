@@ -172,6 +172,21 @@ fn plate_impact_shock_matches() {
 fn oblique_rod_against_a_plate_matches() {
     // Half of a tungsten rod striking a steel plate tilted by 45°: contact,
     // damage, a sliding symmetry plane and open boundaries all at once.
+    oblique_rod_matches(library::tungsten_heavy_alloy(), 0.01);
+}
+
+#[test]
+fn brittle_rod_breaking_against_a_plate_matches() {
+    // The same with a rod of shell steel, which cracks where a principal
+    // stress passes its tensile strength. Where a crack starts depends on
+    // the last digits of the stress, so the solvers agree less closely.
+    oblique_rod_matches(library::shell_steel(), 0.03);
+}
+
+/// Runs half of a rod of `rod_material` against a tilted steel plate on
+/// both solvers and compares them; the rod velocities may differ by
+/// `tolerance` of the impact speed.
+fn oblique_rod_matches(rod_material: Material, tolerance: f64) {
     let cell = 1.0e-3;
     let spacing = cell / 2.0;
     let grid = Grid3 {
@@ -215,7 +230,7 @@ fn oblique_rod_against_a_plate_matches() {
             high: [Wall::Outflow; 3],
         },
         config: SolverConfig::default(),
-        materials: vec![library::tungsten_heavy_alloy(), library::steel_4340()],
+        materials: vec![rod_material, library::steel_4340()],
         seeds: rod.chain(plate).collect(),
         initial_temperature: 294.0,
     };
@@ -259,7 +274,7 @@ fn oblique_rod_against_a_plate_matches() {
     );
     // The rod has been slowed and pushed off its line by the tilted plate.
     assert!(cpu_velocity.x < 1450.0 && cpu_velocity.y.abs() > 5.0);
-    assert!((gpu_velocity - cpu_velocity).length() < 0.01 * 1500.0);
+    assert!((gpu_velocity - cpu_velocity).length() < tolerance * 1500.0);
     assert!((gpu_tip - cpu_tip).abs() < 0.5 * cell);
     assert!((failed(&gpu) - failed(&cpu)).abs() < 0.01);
     // Nothing crossed the symmetry plane.

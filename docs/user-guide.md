@@ -258,7 +258,8 @@ Every field is optional.
 
 Each entry is a complete material: `id`, `name`, an equation of state
 `eos`, a `strength` model, a `damage` model, `spall_strength`,
-`specific_heat` and `taylor_quinney`. A material whose `id` matches a
+`specific_heat` and `taylor_quinney`, and optionally `tensile_strength`,
+the largest principal stress a brittle material carries before it cracks. A material whose `id` matches a
 built-in one replaces it. The easiest way to write one is to copy a
 built-in material in the desktop application, adjust it and save the
 scenario; the second example file contains the result for a steel.
@@ -333,7 +334,12 @@ Treat the output as a physically grounded estimate, not a measurement.
 - The material parameters are literature values that have not been
   checked against primary sources or calibrated.
 - A material point fails all at once, so fracture patterns depend on the
-  grid and perforating rods are reported as mostly failed debris.
+  grid and perforating rods are reported as mostly failed debris. Cracks in
+  a brittle material are one cell wide whatever the cell size.
+- The GPU solver sums in an order that varies from run to run, so two runs
+  of the same scenario differ in the last digits; where material is on the
+  point of cracking or bodies of touching, that can show in the third
+  digit of a result.
 - Armor layers are bonded to each other.
 - The face shape of plates is the same on both sides of the shot line.
 - Armor from an STL file is one material throughout.

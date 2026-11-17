@@ -110,6 +110,12 @@ pub struct Material {
     pub damage: Damage,
     /// Tensile pressure at which the material fails by spallation, in Pa.
     pub spall_strength: f64,
+    /// Largest principal stress the material carries before it breaks, in
+    /// Pa; `None` for a material that only fails in the other ways. This is
+    /// how a hard, brittle material cracks under bending or tension while
+    /// it has hardly deformed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tensile_strength: Option<f64>,
     /// Specific heat capacity, in J/(kg·K).
     pub specific_heat: f64,
     /// Fraction of plastic work converted to heat (Taylor–Quinney
@@ -127,6 +133,9 @@ impl Material {
         self.strength.validate()?;
         self.damage.validate()?;
         validation::positive("spall_strength", self.spall_strength)?;
+        if let Some(limit) = self.tensile_strength {
+            validation::positive("tensile_strength", limit)?;
+        }
         validation::positive("specific_heat", self.specific_heat)?;
         validation::within(
             "taylor_quinney",
@@ -153,6 +162,16 @@ mod tests {
         let steel = library::steel_4340();
         // 0.9 · 53 000 J/kg / 477 J/(kg·K) = 100 K
         assert!((steel.adiabatic_heating(53_000.0) - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn tensile_strength_is_optional_and_positive() {
+        let mut steel = library::steel_4340();
+        assert_eq!(steel.tensile_strength, None);
+        steel.tensile_strength = Some(0.0);
+        assert_eq!(steel.validate().unwrap_err().field, "tensile_strength");
+        assert_eq!(library::shell_steel().validate(), Ok(()));
+        assert!(library::shell_steel().tensile_strength.is_some());
     }
 
     #[test]

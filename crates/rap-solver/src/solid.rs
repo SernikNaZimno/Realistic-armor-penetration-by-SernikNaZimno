@@ -221,6 +221,23 @@ pub fn equivalent_stress(deviator: &DMat3) -> f64 {
     (1.5 * squares).sqrt()
 }
 
+/// Largest principal value of a deviatoric stress tensor, in Pa; the
+/// largest principal stress is this minus the pressure.
+#[must_use]
+pub fn largest_principal(deviator: &DMat3) -> f64 {
+    // Half the sum of squares and the determinant of a traceless tensor.
+    let second = 0.5
+        * (deviator.x_axis.length_squared()
+            + deviator.y_axis.length_squared()
+            + deviator.z_axis.length_squared());
+    if second <= 0.0 {
+        return 0.0;
+    }
+    let third = deviator.determinant();
+    let angle = (1.5 * 3.0_f64.sqrt() * third / (second * second.sqrt())).clamp(-1.0, 1.0);
+    2.0 * (second / 3.0).sqrt() * (angle.acos() / 3.0).cos()
+}
+
 /// A numerical back end that advances a [`Model3`] in time.
 pub trait Solver3 {
     /// Simulation time reached so far, in seconds.
@@ -323,6 +340,33 @@ mod tests {
         let mut empty = model();
         empty.seeds.clear();
         assert_eq!(empty.validate(), Err(ModelError::NoParticles));
+    }
+
+    #[test]
+    fn largest_principal_stress_of_simple_states() {
+        use super::largest_principal;
+        // Uniaxial tension σ: the deviator's largest value is 2σ/3.
+        let stress = 300.0e6;
+        let tension = DMat3::from_diagonal(DVec3::new(2.0, -1.0, -1.0) * stress / 3.0);
+        assert!((largest_principal(&tension) / (2.0 * stress / 3.0) - 1.0).abs() < 1e-12);
+        // Uniaxial compression: the two lateral directions, at σ/3.
+        assert!((largest_principal(&(tension * -1.0)) / (stress / 3.0) - 1.0).abs() < 1e-9);
+        // Pure shear τ, in any plane: τ.
+        for (row, column) in [(0, 1), (0, 2), (1, 2)] {
+            let mut shear = DMat3::ZERO;
+            *shear
+                .col_mut(row)
+                .as_mut()
+                .get_mut(column)
+                .expect("a component") = 100.0e6;
+            *shear
+                .col_mut(column)
+                .as_mut()
+                .get_mut(row)
+                .expect("a component") = 100.0e6;
+            assert!((largest_principal(&shear) / 100.0e6 - 1.0).abs() < 1e-9);
+        }
+        assert!(largest_principal(&DMat3::ZERO).abs() < f64::EPSILON);
     }
 
     #[test]

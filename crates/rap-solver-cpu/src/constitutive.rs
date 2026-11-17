@@ -43,7 +43,8 @@ pub(crate) fn wave_speed(
 /// von Mises radial return; the pressure comes from the equation of state;
 /// the internal energy integrates the stress power, including the artificial
 /// viscosity, so shock heating and plastic heating are both accounted for.
-/// Plastic flow accumulates damage, and tension beyond the spall strength
+/// Plastic flow accumulates damage; tension beyond the spall strength, or a
+/// principal stress beyond the tensile strength of a brittle material,
 /// fails the point at once; a failed point keeps no deviatoric stress and
 /// carries no tension.
 ///
@@ -131,7 +132,12 @@ pub(crate) fn update(
     }
 
     particle.pressure = material.eos.pressure(density, particle.specific_energy);
-    if particle.pressure < -material.spall_strength {
+    let largest_stress = particle.deviator.largest_principal() - particle.pressure;
+    if particle.pressure < -material.spall_strength
+        || material
+            .tensile_strength
+            .is_some_and(|limit| largest_stress > limit)
+    {
         particle.damage = 1.0;
     }
     if particle.is_failed() {
@@ -376,6 +382,77 @@ mod tests {
         assert!(state.deviator.equivalent_stress().abs() < f64::EPSILON);
         // Without shear stiffness only the bulk wave is left.
         assert!(state.sound_speed < 0.9 * intact_speed);
+    }
+
+    #[test]
+    fn brittle_material_breaks_when_a_principal_stress_passes_its_tensile_strength() {
+        let brittle = library::shell_steel();
+        let limit = brittle.tensile_strength.expect("shell steel is brittle");
+        // Stretched along x only: the largest principal stress is σ_xx.
+        let pull = plane(1.0e5, 0.0, 0.0, 0.0);
+        let mut state = particle(&brittle);
+        let mut last = 0.0;
+        while !state.is_failed() {
+            last = state.stress_xx();
+            advance(&mut state, &brittle, &pull, 1.0e-9);
+            assert!(state.plastic_strain < 1.0e-3, "it yielded before it broke");
+        }
+        // It broke between the last intact stress and the next step, far
+        // below the spall strength and the yield stress.
+        assert!(last < limit && last > 0.97 * limit, "{last}");
+        assert!(state.deviator.equivalent_stress().abs() < f64::EPSILON);
+        assert!(state.pressure.abs() < f64::EPSILON);
+
+        // Pure shear breaks it too: its largest principal stress is the
+        // shear stress. Armor steel under the same shear only yields.
+        let shear = plane(0.0, 2.0e5, 0.0, 0.0);
+        let mut sheared = particle(&brittle);
+        let tough = library::steel_4340();
+        let mut yielding = particle(&tough);
+        for _ in 0..4000 {
+            advance(&mut sheared, &brittle, &shear, 1.0e-8);
+            advance(&mut yielding, &tough, &shear, 1.0e-8);
+        }
+        assert!(sheared.is_failed());
+        assert!(!yielding.is_failed() && yielding.plastic_strain > 0.0);
+
+        // Squeezed along x as hard as it was pulled, it holds.
+        let mut squeezed = particle(&brittle);
+        for _ in 0..2000 {
+            advance(
+                &mut squeezed,
+                &brittle,
+                &plane(-1.0e5, 0.0, 0.0, 0.0),
+                1.0e-8,
+            );
+        }
+        assert!(!squeezed.is_failed());
+        assert!(squeezed.stress_xx() < -limit);
+    }
+
+    #[test]
+    fn largest_principal_stress_of_plane_states() {
+        // Tension along x: 2σ/3 in the deviator.
+        let pulled = Deviator {
+            xx: 2.0e8,
+            yy: -1.0e8,
+            xy: 0.0,
+        };
+        assert!((pulled.largest_principal() - 2.0e8).abs() < 1e-3);
+        // Hoop tension: the out-of-plane value is the largest.
+        let hoop = Deviator {
+            xx: -1.0e8,
+            yy: -1.0e8,
+            xy: 0.0,
+        };
+        assert!((hoop.largest_principal() - 2.0e8).abs() < 1e-3);
+        // Pure shear τ: τ.
+        let sheared = Deviator {
+            xx: 0.0,
+            yy: 0.0,
+            xy: 1.5e8,
+        };
+        assert!((sheared.largest_principal() - 1.5e8).abs() < 1e-3);
     }
 
     #[test]

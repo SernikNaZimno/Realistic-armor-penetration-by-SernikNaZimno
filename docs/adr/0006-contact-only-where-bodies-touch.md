@@ -52,3 +52,10 @@ squeezed far ahead of the shell added tens of millimetres.
   of a tenth of a cell can no longer be told from contact.
 - Results of every earlier run with two bodies change; the validation
   numbers in the README were measured again.
+- The verdict must be the same for both bodies, or one is pushed and the
+  other is not and momentum is lost. Each body therefore sums the others
+  one by one instead of subtracting itself from the total: with two bodies
+  the quantities compared are then identical or exactly opposite in
+  floating point, whichever body asks. The single-precision GPU solver,
+  whose sums vary in their last digits from run to run, showed the
+  difference; the CPU solver hid it.

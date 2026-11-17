@@ -21,6 +21,14 @@ impl Deviator {
         -(self.xx + self.yy)
     }
 
+    /// Largest principal value of the deviatoric stress, in Pa; the largest
+    /// principal stress is this minus the pressure.
+    #[must_use]
+    pub fn largest_principal(&self) -> f64 {
+        let in_plane = f64::midpoint(self.xx, self.yy) + (0.5 * (self.xx - self.yy)).hypot(self.xy);
+        in_plane.max(self.zz())
+    }
+
     /// Von Mises equivalent stress, `sqrt(3/2 · s:s)`.
     #[must_use]
     pub fn equivalent_stress(&self) -> f64 {

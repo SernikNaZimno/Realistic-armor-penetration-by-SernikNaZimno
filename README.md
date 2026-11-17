@@ -265,6 +265,9 @@ for the design.
   strength, so a rod that perforates a plate is reported as largely failed
   debris, and the mass counted behind the armor includes that debris.
 - The bursting charge of a shell is inert: it does not detonate.
+- Brittle fracture is local: a crack is one cell wide whatever the cell
+  size, so the energy it takes depends on the grid.
+- The GPU solver is not reproducible to the last digit from run to run.
 - All armor layers are bonded to each other.
 - Armor from an STL file is one material, and the piece of it that is
   modelled is not confined by the armor around it.
@@ -332,6 +335,8 @@ cargo run -p rap-cli
   shell steel
 - M15 — pictures of a run from the command line, for films
 - M16 — three-dimensional pictures of axisymmetric models
+- M17 — brittle fracture by the largest principal stress; no limit on the
+  number of particles on the GPU
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material

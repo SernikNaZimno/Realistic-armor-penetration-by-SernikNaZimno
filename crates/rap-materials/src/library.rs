@@ -53,6 +53,7 @@ pub fn steel_4340() -> Material {
             reference,
         }),
         spall_strength: 3.5e9,
+        tensile_strength: None,
         specific_heat: 477.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -63,9 +64,9 @@ pub fn steel_4340() -> Material {
 /// nearly rigid while it penetrates and breaks rather than bends when it is
 /// overloaded.
 ///
-/// The strength corresponds to a hardness of roughly 55 HRC and the
-/// fracture strains are estimates for a hard, brittle steel; none of these
-/// values comes from a primary source.
+/// The strength corresponds to a hardness of roughly 55 HRC; the fracture
+/// strains and the tensile strength at which it cracks are estimates for a
+/// hard, brittle steel. None of these values comes from a primary source.
 #[must_use]
 pub fn shell_steel() -> Material {
     let reference = RateTemperatureReference {
@@ -100,6 +101,7 @@ pub fn shell_steel() -> Material {
             reference,
         }),
         spall_strength: 3.5e9,
+        tensile_strength: Some(2.2e9),
         specific_heat: 477.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -140,6 +142,7 @@ pub fn tungsten_heavy_alloy() -> Material {
             reference,
         }),
         spall_strength: 2.0e9,
+        tensile_strength: None,
         specific_heat: 134.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -182,6 +185,7 @@ pub fn alumina() -> Material {
             tensile_strength,
         }),
         spall_strength: tensile_strength,
+        tensile_strength: None,
         specific_heat: 880.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -227,6 +231,7 @@ pub fn tnt_inert() -> Material {
             reference,
         }),
         spall_strength: 20.0e6,
+        tensile_strength: None,
         specific_heat: 1130.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }

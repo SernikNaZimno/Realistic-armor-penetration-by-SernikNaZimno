@@ -266,7 +266,6 @@ impl MpmSolver {
                 // Free motion of every body, and the mean motion of them all.
                 let mut total_mass = 0.0;
                 let mut total_momentum = DVec2::ZERO;
-                let mut total_outward = DVec2::ZERO;
                 for field in &mut self.fields {
                     let mass = field.mass[node];
                     if mass <= 0.0 {
@@ -278,16 +277,21 @@ impl MpmSolver {
                     field.work_velocity[node] = unconstrained;
                     total_mass += mass;
                     total_momentum += mass * unconstrained;
-                    total_outward += field.outward[node];
                 }
                 if total_mass <= 0.0 {
                     self.node_heat[node] = 0.0;
                     continue;
                 }
                 let centre = total_momentum / total_mass;
+                // Mass and outward vector of every body at the node, for
+                // the sums over the other bodies below.
+                let mut shares = [(0.0, DVec2::ZERO); rap_solver::model::MAX_BODIES];
+                for (share, field) in shares.iter_mut().zip(&self.fields) {
+                    *share = (field.mass[node], field.outward[node]);
+                }
 
                 let mut dissipated = 0.0;
-                for field in &mut self.fields {
+                for (body, field) in self.fields.iter_mut().enumerate() {
                     let mass = field.mass[node];
                     if mass <= 0.0 {
                         continue;
@@ -295,14 +299,25 @@ impl MpmSolver {
                     let before = field.velocity[node];
                     let unconstrained = field.work_velocity[node];
                     let mut velocity = unconstrained;
-                    if mass < total_mass {
+                    // The other bodies are summed one by one, not taken as
+                    // the total less this one: with two bodies each then
+                    // sees exactly the other's values, and both reach the
+                    // same verdict on whether they touch.
+                    let (others_mass, others_outward) = shares
+                        .iter()
+                        .enumerate()
+                        .filter(|(other, share)| *other != body && share.0 > 0.0)
+                        .fold((0.0, DVec2::ZERO), |sum, (_, share)| {
+                            (sum.0 + share.0, sum.1 + share.1)
+                        });
+                    if others_mass > 0.0 {
                         // The normal separates this body from all others.
                         let own = field.outward[node];
-                        let outward = 2.0 * own - total_outward;
+                        let outward = own - others_outward;
                         // From each centre of mass to the node.
-                        let reach = own / mass - (total_outward - own) / (total_mass - mass);
-                        if constraints::touching(outward, reach, mass / total_mass, grid.cell_size)
-                        {
+                        let reach = own / mass - others_outward / others_mass;
+                        let share = mass.min(others_mass) / (mass + others_mass);
+                        if constraints::touching(outward, reach, share, grid.cell_size) {
                             velocity =
                                 constraints::resolve_contact(velocity, centre, outward, friction);
                         }

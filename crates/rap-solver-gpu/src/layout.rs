@@ -11,7 +11,10 @@ use rap_solver::{Deviator, Model, Particle, SolverError, Symmetry, Wall};
 /// Words per `Particle` in the shader.
 pub(crate) const PARTICLE_WORDS: usize = 24;
 /// Words per `Material` in the shader.
-const MATERIAL_WORDS: usize = 44;
+const MATERIAL_WORDS: usize = 45;
+/// What the shader gets for a material without a tensile strength: a
+/// stress no material reaches.
+const NO_TENSILE_LIMIT: f64 = 1.0e30;
 /// Words in the shader's `Clock`.
 pub(crate) const CLOCK_WORDS: usize = 8;
 
@@ -214,6 +217,7 @@ fn encode_material(material: &Material) -> Result<Vec<u32>, SolverError> {
             material.spall_strength,
             material.specific_heat,
             material.taylor_quinney,
+            material.tensile_strength.unwrap_or(NO_TENSILE_LIMIT),
         ]);
     words.extend(reals.map(bits));
     debug_assert_eq!(words.len(), MATERIAL_WORDS);
@@ -413,9 +417,9 @@ mod tests {
         );
         assert_eq!(encode_particles(&model).len(), 2 * PARTICLE_WORDS);
         assert_eq!(Clock::starting_with(1.0).encode().len(), CLOCK_WORDS);
-        // `Particle` is 96 bytes and `Material` 176.
+        // `Particle` is 96 bytes and `Material` 180.
         assert_eq!(PARTICLE_WORDS * 4, 96);
-        assert_eq!(MATERIAL_WORDS * 4, 176);
+        assert_eq!(MATERIAL_WORDS * 4, 180);
     }
 
     #[test]
@@ -471,6 +475,8 @@ mod tests {
         for material in [steel, alumina] {
             assert!(real(material[41]) > 0.0 && real(material[42]) > 100.0);
             assert!(real(material[43]) > 0.0 && real(material[43]) <= 1.0);
+            // Neither has a tensile strength.
+            assert!(real(material[44]) > 1.0e29);
         }
     }
 }

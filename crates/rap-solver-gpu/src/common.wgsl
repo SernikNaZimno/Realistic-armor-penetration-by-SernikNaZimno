@@ -84,6 +84,9 @@ struct Material {
     spall_strength: f32,
     specific_heat: f32,
     taylor_quinney: f32,
+    // Largest principal stress the material carries; huge if it has no such
+    // limit.
+    tensile_limit: f32,
 }
 
 struct Clock {
@@ -264,12 +267,21 @@ fn yield_point(
     return yield_stress / equivalent;
 }
 
-// Pressure from the equation of state, spall and the wave speed at the end
-// of a step. Returns whether the point keeps no deviatoric stress.
-fn close_point(material: Material, point: ptr<function, Point>, density: f32) -> bool {
+// Pressure from the equation of state, spall, brittle fracture and the wave
+// speed at the end of a step. `largest_deviator` is the largest principal
+// value of the new deviatoric stress. Returns whether the point keeps no
+// deviatoric stress.
+fn close_point(
+    material: Material,
+    point: ptr<function, Point>,
+    density: f32,
+    largest_deviator: f32,
+) -> bool {
     let state = eos_state(material, density, (*point).specific_energy);
     var pressure = state.x;
-    if pressure < -material.spall_strength {
+    if pressure < -material.spall_strength
+        || largest_deviator - pressure > material.tensile_limit
+    {
         (*point).damage = 1.0;
     }
     let failed = (*point).damage >= 1.0;
@@ -315,9 +327,9 @@ fn touching_separation(share_in: f32) -> f32 {
 }
 
 // Whether two bodies whose centres are `separation` cells apart along the
-// contact normal touch.
+// contact normal touch; `share` is that of the lighter of them.
 fn touches(separation: f32, share: f32) -> bool {
-    return separation <= touching_separation(min(share, 1.0 - share)) + CONTACT_MARGIN;
+    return separation <= touching_separation(share) + CONTACT_MARGIN;
 }
 
 // Artificial bulk-viscosity pressure of a point being compressed.

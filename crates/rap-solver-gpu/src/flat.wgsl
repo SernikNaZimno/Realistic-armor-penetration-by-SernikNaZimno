@@ -109,6 +109,13 @@ fn radius_of(position: vec2<f32>) -> f32 {
     return max(position.y - params.axis, MIN_RADIUS_CELLS * params.cell_size);
 }
 
+// Largest principal value of a deviatoric stress (xx, yy, xy).
+fn largest_principal(deviator: vec3<f32>) -> f32 {
+    let in_plane = 0.5 * (deviator.x + deviator.y)
+        + length(vec2<f32>(0.5 * (deviator.x - deviator.y), deviator.z));
+    return max(in_plane, -(deviator.x + deviator.y));
+}
+
 fn equivalent_stress(deviator: vec3<f32>) -> f32 {
     let zz = -(deviator.x + deviator.y);
     let squares = deviator.x * deviator.x + deviator.y * deviator.y + zz * zz;
@@ -333,14 +340,12 @@ fn grid(@builtin(global_invocation_id) id: vec3<u32>) {
     var unconstrained: array<vec2<f32>, 8>;
     var total_mass = 0.0;
     var total_momentum = vec2<f32>(0.0);
-    var total_outward = vec2<f32>(0.0);
     for (var body = 0u; body < params.bodies; body++) {
         if mass[body] > 0.0 {
             before[body] = momentum[body] / mass[body];
             unconstrained[body] = before[body] + impulse[body] / mass[body];
             total_mass += mass[body];
             total_momentum += mass[body] * unconstrained[body];
-            total_outward += outward[body];
         }
     }
 
@@ -350,16 +355,26 @@ fn grid(@builtin(global_invocation_id) id: vec3<u32>) {
         var work_velocity = vec2<f32>(0.0);
         if mass[body] > 0.0 {
             velocity = unconstrained[body];
-            if mass[body] < total_mass {
+            // The other bodies are summed one by one, not taken as the
+            // total less this one: with two bodies each then sees exactly
+            // the other's values, and both reach the same verdict on
+            // whether they touch.
+            var others_mass = 0.0;
+            var others_outward = vec2<f32>(0.0);
+            for (var other = 0u; other < params.bodies; other++) {
+                if other != body && mass[other] > 0.0 {
+                    others_mass += mass[other];
+                    others_outward += outward[other];
+                }
+            }
+            if others_mass > 0.0 {
                 let centre = total_momentum / total_mass;
-                let normal = 2.0 * outward[body] - total_outward;
+                let normal = outward[body] - others_outward;
                 // From each centre of mass to the node.
-                let reach = outward[body] / mass[body]
-                    - (total_outward - outward[body]) / (total_mass - mass[body]);
+                let reach = outward[body] / mass[body] - others_outward / others_mass;
                 let span = length(normal);
-                if span > 0.0
-                    && touches(dot(reach, normal) / (span * cell), mass[body] / total_mass)
-                {
+                let share = min(mass[body], others_mass) / (mass[body] + others_mass);
+                if span > 0.0 && touches(dot(reach, normal) / (span * cell), share) {
                     velocity = resolve_contact(velocity, centre, normal);
                 }
             }
@@ -498,7 +513,7 @@ fn particles_update(
         particle.deviator =
             trial * yield_point(material, &point, equivalent_stress(trial), density, time_step);
     }
-    if close_point(material, &point, density) {
+    if close_point(material, &point, density, largest_principal(particle.deviator)) {
         particle.deviator = vec3<f32>(0.0);
     }
     particle.pressure = point.pressure;

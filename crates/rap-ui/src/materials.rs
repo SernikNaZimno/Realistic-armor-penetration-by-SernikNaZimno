@@ -225,6 +225,20 @@ fn properties(ui: &mut egui::Ui, material: &mut Material) -> bool {
             " GPa",
         )
     });
+    changed |= row(ui, "Tensile strength", |ui| {
+        ui.horizontal(|ui| {
+            let mut limited = material.tensile_strength.is_some();
+            let mut edited = ui.checkbox(&mut limited, "").changed();
+            if edited {
+                material.tensile_strength = limited.then_some(2.0e9);
+            }
+            if let Some(limit) = &mut material.tensile_strength {
+                edited |= scaled(ui, limit, 1.0e-9, 0.01..=100.0, " GPa");
+            }
+            edited
+        })
+        .inner
+    });
     changed |= row(ui, "Specific heat", |ui| {
         scaled(
             ui,

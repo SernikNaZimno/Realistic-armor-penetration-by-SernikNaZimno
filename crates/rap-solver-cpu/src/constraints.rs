@@ -43,14 +43,17 @@ pub(crate) fn apply_walls(
 /// [`rap_solver::contact`].
 ///
 /// `outward` is a vector along the body's outward surface normal, `reach`
-/// the vector from the centre of mass of the others to that of the body,
-/// reversed: the body's own arm from its centre to the node minus that of
-/// the others. `share` is the body's share of the mass at the node.
+/// the body's own arm from its centre of mass to the node minus that of
+/// the others, and `share` the share of the mass at the node held by the
+/// lighter of the two sides.
+///
+/// For two bodies all three are the same, or exactly opposite, whichever
+/// body asks, so both get the same answer.
 pub(crate) fn touching(outward: DVec2, reach: DVec2, share: f64, cell_size: f64) -> bool {
     let Some(normal) = outward.try_normalize() else {
         return false;
     };
-    contact::touches(reach.dot(normal) / cell_size, share.min(1.0 - share))
+    contact::touches(reach.dot(normal) / cell_size, share)
 }
 
 /// Resolves contact of one body with the others sharing a grid node.

@@ -126,6 +126,21 @@ fn symmetric(normal: vec3<f32>, shear: vec3<f32>) -> mat3x3<f32> {
     );
 }
 
+// Largest principal value of a traceless symmetric tensor given by its
+// normal components (xx, yy, zz) and its shear components (xy, xz, yz).
+fn largest_principal(normal: vec3<f32>, shear: vec3<f32>) -> f32 {
+    // Half the sum of squares and the determinant.
+    let second = 0.5 * dot(normal, normal) + dot(shear, shear);
+    if second <= 0.0 {
+        return 0.0;
+    }
+    let third = normal.x * normal.y * normal.z + 2.0 * shear.x * shear.y * shear.z
+        - normal.x * shear.z * shear.z - normal.y * shear.y * shear.y
+        - normal.z * shear.x * shear.x;
+    let angle = clamp(1.5 * sqrt(3.0) * third / (second * sqrt(second)), -1.0, 1.0);
+    return 2.0 * sqrt(second / 3.0) * cos(acos(angle) / 3.0);
+}
+
 // Sum of the products of corresponding components of two tensors.
 fn inner(a: mat3x3<f32>, b: mat3x3<f32>) -> f32 {
     return dot(a[0], b[0]) + dot(a[1], b[1]) + dot(a[2], b[2]);
@@ -370,14 +385,12 @@ fn grid(@builtin(global_invocation_id) id: vec3<u32>) {
     var unconstrained: array<vec3<f32>, 8>;
     var total_mass = 0.0;
     var total_momentum = vec3<f32>(0.0);
-    var total_outward = vec3<f32>(0.0);
     for (var body = 0u; body < params.bodies; body++) {
         if mass[body] > 0.0 {
             before[body] = momentum[body] / mass[body];
             unconstrained[body] = before[body] + impulse[body] / mass[body];
             total_mass += mass[body];
             total_momentum += mass[body] * unconstrained[body];
-            total_outward += outward[body];
         }
     }
 
@@ -387,16 +400,26 @@ fn grid(@builtin(global_invocation_id) id: vec3<u32>) {
         var work_velocity = vec3<f32>(0.0);
         if mass[body] > 0.0 {
             velocity = unconstrained[body];
-            if mass[body] < total_mass {
+            // The other bodies are summed one by one, not taken as the
+            // total less this one: with two bodies each then sees exactly
+            // the other's values, and both reach the same verdict on
+            // whether they touch.
+            var others_mass = 0.0;
+            var others_outward = vec3<f32>(0.0);
+            for (var other = 0u; other < params.bodies; other++) {
+                if other != body && mass[other] > 0.0 {
+                    others_mass += mass[other];
+                    others_outward += outward[other];
+                }
+            }
+            if others_mass > 0.0 {
                 let centre = total_momentum / total_mass;
-                let normal = 2.0 * outward[body] - total_outward;
+                let normal = outward[body] - others_outward;
                 // From each centre of mass to the node.
-                let reach = outward[body] / mass[body]
-                    - (total_outward - outward[body]) / (total_mass - mass[body]);
+                let reach = outward[body] / mass[body] - others_outward / others_mass;
                 let span = length(normal);
-                if span > 0.0
-                    && touches(dot(reach, normal) / (span * cell), mass[body] / total_mass)
-                {
+                let share = min(mass[body], others_mass) / (mass[body] + others_mass);
+                if span > 0.0 && touches(dot(reach, normal) / (span * cell), share) {
                     velocity = resolve_contact(velocity, centre, normal);
                 }
             }
@@ -529,7 +552,8 @@ fn particles_update(
             kept[2].y + kept[1].z,
         );
     }
-    if close_point(material, &point, density) {
+    let largest = largest_principal(particle.deviator_normal, particle.deviator_shear);
+    if close_point(material, &point, density, largest) {
         particle.deviator_normal = vec3<f32>(0.0);
         particle.deviator_shear = vec3<f32>(0.0);
     }
