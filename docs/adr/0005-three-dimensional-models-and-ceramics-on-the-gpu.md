@@ -51,10 +51,11 @@ matters most.
   `crates/rap-app/tests`).
 - No model is refused on the GPU any more for what it contains; only its
   size can rule it out.
-- The size limits of ADR 0002 remain: the largest buffer the device
-  allows, and 65 535 workgroups per dispatch, which is about 4 million
-  particles or grid nodes. A three-dimensional grid reaches that sooner
-  than the 8 million nodes the assembler allows.
+- The size limits of ADR 0002 remained at first: the largest buffer the
+  device allows, and 65 535 workgroups per dispatch, which is about
+  4 million particles or grid nodes. The second was lifted afterwards: the
+  passes that run once per particle, node or row are dispatched as rows of
+  workgroups and compute their index from the row and the position in it.
 - A three-dimensional node gathers from 27 cells and a particle is 144
   bytes, so memory traffic limits the speed even more than in two
   dimensions. On the integrated AMD Radeon the two three-dimensional

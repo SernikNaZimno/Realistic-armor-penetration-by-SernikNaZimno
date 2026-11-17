@@ -27,6 +27,19 @@ pub(crate) fn gpu_error(error: impl fmt::Display) -> SolverError {
     SolverError::Gpu(error.to_string())
 }
 
+/// Most workgroups in one row of a pass that runs once per particle, per
+/// node or per row; more are dispatched as further rows. Every device
+/// allows at least 65 535 workgroups along a dimension.
+const ROW_GROUPS: u32 = 32_768;
+
+/// Workgroups, along each dimension, of a pass that runs `count` times with
+/// at most `row_groups` workgroups in a row.
+fn linear_dispatch(count: u32, row_groups: u32) -> [u32; 3] {
+    let groups = workgroups(count, LINEAR_GROUP);
+    let in_row = groups.min(row_groups);
+    [in_row, groups.div_ceil(in_row), 1]
+}
+
 /// Number of workgroups of `size` invocations needed to cover `count`.
 pub(crate) fn workgroups(count: u32, size: u32) -> u32 {
     count.div_ceil(size).max(1)
@@ -81,7 +94,8 @@ impl Program {
                  resolution"
             )));
         }
-        let widest = workgroups(self.particle_count.max(self.node_count), LINEAR_GROUP);
+        let rows = linear_dispatch(self.particle_count.max(self.node_count), ROW_GROUPS)[1];
+        let widest = rows.max(self.grid_workgroups.into_iter().max().unwrap_or(1));
         if widest > limits.max_compute_workgroups_per_dimension {
             return Err(SolverError::Gpu(
                 "the model has more particles or nodes than this GPU can dispatch".to_owned(),
@@ -94,7 +108,7 @@ impl Program {
     /// number of workgroups each is dispatched with.
     fn stages(&self) -> [(&'static str, [u32; 3]); 9] {
         let once = [1, 1, 1];
-        let linear = |count: u32| [workgroups(count, LINEAR_GROUP), 1, 1];
+        let linear = |count: u32| linear_dispatch(count, ROW_GROUPS);
         [
             ("prepare", once),
             ("clear_bins", linear(self.node_count)),
@@ -417,5 +431,24 @@ impl fmt::Debug for Engine {
             .field("time", &self.time)
             .field("steps", &self.steps)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LINEAR_GROUP, ROW_GROUPS, linear_dispatch};
+
+    #[test]
+    fn linear_passes_are_dispatched_in_rows_that_cover_every_invocation() {
+        assert_eq!(linear_dispatch(0, ROW_GROUPS), [1, 1, 1]);
+        assert_eq!(linear_dispatch(64, ROW_GROUPS), [1, 1, 1]);
+        assert_eq!(linear_dispatch(65, ROW_GROUPS), [2, 1, 1]);
+        // Four million particles no longer fit in one row of workgroups.
+        let [in_row, rows, layers] = linear_dispatch(4_000_000, ROW_GROUPS);
+        assert_eq!((in_row, rows, layers), (ROW_GROUPS, 2, 1));
+        assert!(u64::from(in_row) * u64::from(rows) * u64::from(LINEAR_GROUP) >= 4_000_000);
+        // With narrow rows, as many rows as it takes.
+        assert_eq!(linear_dispatch(1000, 4), [4, 4, 1]);
+        assert_eq!(linear_dispatch(u32::MAX, ROW_GROUPS)[1], 2048);
     }
 }

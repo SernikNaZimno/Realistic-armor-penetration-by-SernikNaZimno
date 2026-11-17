@@ -4,6 +4,8 @@
 // functions here refer to.
 
 const MAX_BODIES: u32 = 8u;
+// Invocations per workgroup of the passes indexed by `linear_index`.
+const LINEAR_GROUP: u32 = 64u;
 const WALL_CELLS: u32 = 2u;
 
 const WALL_FRICTIONLESS: u32 = 0u;
@@ -108,6 +110,13 @@ struct Point {
     temperature: f32,
     damage: f32,
     sound_speed: f32,
+}
+
+// Index of an invocation of a pass that runs once per particle, per node or
+// per row. Such a pass is dispatched as rows of workgroups, since a single
+// row cannot hold more than 65 535 of them.
+fn linear_index(id: vec3<u32>, groups: vec3<u32>) -> u32 {
+    return id.x + id.y * groups.x * LINEAR_GROUP;
 }
 
 // Quadratic B-spline weights of the three stencil nodes for a particle at

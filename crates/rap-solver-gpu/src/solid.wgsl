@@ -190,17 +190,24 @@ fn resolve_contact(velocity: vec3<f32>, centre: vec3<f32>, outward: vec3<f32>) -
 // ------------------------------------------------------------ entry points
 
 @compute @workgroup_size(64)
-fn clear_bins(@builtin(global_invocation_id) id: vec3<u32>) {
-    if id.x < node_total() {
-        atomicStore(&bin_count[id.x], 0u);
+fn clear_bins(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(num_workgroups) groups: vec3<u32>,
+) {
+    let bin = linear_index(id, groups);
+    if bin < node_total() {
+        atomicStore(&bin_count[bin], 0u);
     }
 }
 
 // Retires particles that crossed an outflow wall, flags those that left
 // the grid and counts the rest into their bins.
 @compute @workgroup_size(64)
-fn count_particles(@builtin(global_invocation_id) id: vec3<u32>) {
-    let index = id.x;
+fn count_particles(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(num_workgroups) groups: vec3<u32>,
+) {
+    let index = linear_index(id, groups);
     if index >= params.particle_count || clock.time_step <= 0.0 {
         return;
     }
@@ -235,8 +242,11 @@ fn count_particles(@builtin(global_invocation_id) id: vec3<u32>) {
 // Prefix sum within one row. Resets the counts, which the fill pass uses as
 // cursors, and leaves the row total in the row table.
 @compute @workgroup_size(64)
-fn row_prefix(@builtin(global_invocation_id) id: vec3<u32>) {
-    let row = id.x;
+fn row_prefix(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(num_workgroups) groups: vec3<u32>,
+) {
+    let row = linear_index(id, groups);
     if row >= row_total() || clock.time_step <= 0.0 {
         return;
     }
@@ -266,8 +276,11 @@ fn row_offsets() {
 }
 
 @compute @workgroup_size(64)
-fn fill_bins(@builtin(global_invocation_id) id: vec3<u32>) {
-    let index = id.x;
+fn fill_bins(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(num_workgroups) groups: vec3<u32>,
+) {
+    let index = linear_index(id, groups);
     if index >= params.particle_count || clock.time_step <= 0.0 {
         return;
     }
@@ -402,8 +415,11 @@ fn grid(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 @compute @workgroup_size(64)
-fn particles_update(@builtin(global_invocation_id) id: vec3<u32>) {
-    let index = id.x;
+fn particles_update(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(num_workgroups) groups: vec3<u32>,
+) {
+    let index = linear_index(id, groups);
     let time_step = clock.time_step;
     if index >= params.particle_count || time_step <= 0.0 {
         return;

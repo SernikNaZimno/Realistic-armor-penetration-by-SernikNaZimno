@@ -278,8 +278,9 @@ for the design.
 - A run cannot be paused and resumed from a file.
 - The three-dimensional CPU solver has a serial particle-to-grid transfer.
 - The GPU solver needs a Vulkan, DirectX 12 or Metal adapter, has only
-  been run on one integrated AMD GPU, and is limited to about 4 million
-  particles or grid nodes and to the largest buffer the adapter allows.
+  been run on one integrated AMD GPU, and is limited by the largest buffer
+  the adapter allows: a three-dimensional particle takes 144 bytes. The
+  largest model run so far has 2.3 million particles.
 
 ## Layout
 
