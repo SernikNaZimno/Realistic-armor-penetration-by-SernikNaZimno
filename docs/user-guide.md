@@ -46,7 +46,8 @@ the middle and the results on the right. It opens with a long-rod example.
   ballistic cap) or APFSDS (a long rod). Set the diameter, the length of
   the cylindrical part, the nose shape and the material. The nose length
   is added to the body length. Switching the type keeps the dimensions.
-- **Armor.** Set the obliquity: 0° is a perpendicular hit. Add layers
+- **Armor.** Choose between plates and a solid from an STL file. For
+  plates, set the obliquity: 0° is a perpendicular hit. Add layers
   from the struck face inwards, each with a material, a thickness and,
   from the second layer on, the gap in front of it. The arrows reorder
   layers.
@@ -55,6 +56,10 @@ the middle and the results on the right. It opens with a long-rod example.
   Positive displacement moves the face away from the projectile. The face
   is straight between points and flat beyond the last one, and every
   layer follows it. With no points the armor is flat.
+- **Solid from an STL file.** Pick the file and the units it is written
+  in, the material, a point the shot passes through and the direction of
+  flight; see [Armor from an STL file](#armor-from-an-stl-file). Save the
+  scenario next to the mesh, or give the full path of the mesh.
 - **Materials.** Built-in materials cannot be changed. *Copy to edit*
   makes a copy that belongs to the scenario and appears in the material
   lists under a new identifier.
@@ -73,7 +78,8 @@ editors are locked while a run exists.
 In the view, drag to pan, scroll to zoom and double-click to reset.
 *Colour by* selects what the colours show. An axisymmetric model is drawn
 mirrored about its axis. For a three-dimensional model the view shows the
-slice in the symmetry plane.
+slice in the symmetry plane; for armor from an STL file, the slice through
+the shot line that is as close to upright in the file as the shot allows.
 
 *New* loads an example, *Open…* and *Save as…* read and write scenario
 files, the same ones the command line uses.
@@ -117,7 +123,9 @@ complete examples are in [examples](examples):
 - [capped-shot-domed-plate.json](examples/capped-shot-domed-plate.json): a
   capped shot of a custom steel against a plate with a shaped face;
 - [oblique-plate.json](examples/oblique-plate.json): a rod against a plate
-  at 60°, in three dimensions.
+  at 60°, in three dimensions;
+- [cast-dome.json](examples/cast-dome.json): a rod against the wall of a
+  hollow dome read from [cast-dome.stl](examples/cast-dome.stl).
 
 Unknown fields are rejected, so a misspelt name is reported instead of
 ignored.
@@ -164,6 +172,33 @@ the ogive radius divided by the body diameter and is at least 0.5.
 | `layers` | plates from the struck face inwards, each with `material`, `thickness` and optionally `gap_before`, the empty space in front of it |
 | `obliquity_deg` | angle between the shot line and the plate normal, from 0 up to but not including 90 |
 | `face_profile` | optional; points with `lateral`, the distance from the shot line, and `offset`, the displacement of the face along its normal there; `lateral` must increase from point to point |
+
+Instead of these three fields the armor can be a solid of any shape:
+`"armor": { "mesh": { … } }`.
+
+### Armor from an STL file
+
+| Field of `mesh` | Meaning |
+|---|---|
+| `file` | the STL file, binary or text; a relative path starts at the folder of the scenario file |
+| `metres_per_unit` | length of one unit of the file in metres; default `0.001`, a file in millimetres |
+| `material` | material identifier of the whole solid |
+| `aim_point` | a point on the shot line, in the coordinates and units of the file |
+| `direction` | direction in which the projectile flies, in the coordinates of the file; its length does not matter |
+| `max_depth` | optional; how far behind the point of impact the solid is modelled, along the shot line, in metres |
+
+The projectile flies along the line through `aim_point` and strikes where
+that line first enters the solid, so the aim point may be anywhere on the
+line, also inside the solid or behind it. The mesh must be one or more closed
+surfaces without holes. Only the part of the solid within
+`armor_extent_radii` of the shot line is modelled. A hollow shape is
+modelled through to its far wall unless `max_depth` stops short of it; the
+reported depth and perforation refer to the last surface the shot line
+leaves within the modelled part.
+
+Such armor always gives a three-dimensional model of the whole
+neighbourhood of the shot line, which costs about twice as much as the
+half model of an oblique plate of the same size.
 
 `scenario.impact_speed` is the speed of the projectile at impact.
 
@@ -256,7 +291,8 @@ Treat the output as a physically grounded estimate, not a measurement.
 - A material point fails all at once, so fracture patterns depend on the
   grid and perforating rods are reported as mostly failed debris.
 - Armor layers are bonded to each other.
-- The face shape is the same on both sides of the shot line.
+- The face shape of plates is the same on both sides of the shot line.
+- Armor from an STL file is one material throughout.
 - Contact acts about one grid cell before bodies touch.
 - Explosive reactive armor, sabots and the flight of the projectile are
   not modelled.
@@ -266,7 +302,11 @@ Treat the output as a physically grounded estimate, not a measurement.
 | Message | What to do |
 |---|---|
 | `material … is not defined` | check the identifier against `rap materials`, or define the material in the file |
-| `the grid would have … nodes` | lower `cells_per_radius` or `armor_extent_radii`; for an oblique impact, consider `"oblique_model": "plane_strain"` |
+| `the grid would have … nodes` | lower `cells_per_radius` or `armor_extent_radii`; for an oblique impact, consider `"oblique_model": "plane_strain"`; for armor from an STL file, set `max_depth` |
+| `cannot read … .stl` | the mesh is looked for next to the scenario file; move it there or give its full path |
+| `the mesh is not a closed surface` | repair the mesh in the program that exported it; every edge must be shared by two triangles |
+| `the shot line misses the armor mesh` | check `aim_point`, `direction` and `metres_per_unit` against the coordinates of the file |
+| `the armor mesh is smaller than one particle` | `metres_per_unit` is probably wrong: a file in millimetres read as metres is a thousand times too large, the reverse a thousand times too small |
 | `no compatible GPU was found` | use the CPU solver; the GPU solver needs a Vulkan, DirectX 12 or Metal adapter |
 | `the GPU solver cannot run three-dimensional models yet` | use the CPU solver, or `"oblique_model": "plane_strain"` |
 | `material … uses a model the GPU solver does not implement` | the scenario contains a ceramic; use the CPU solver |

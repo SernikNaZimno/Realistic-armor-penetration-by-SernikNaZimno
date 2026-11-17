@@ -1,8 +1,11 @@
 //! Parametric shapes, solid construction and particle sampling.
 
+pub mod mesh;
 pub mod nose;
 
 use glam::{DVec2, DVec3};
+
+pub use mesh::{Columns, MeshError, TriangleMesh};
 
 /// Fills the part of the axis-aligned rectangle between `lower` and `upper`
 /// selected by `keep` with a regular lattice of points, one at the centre of

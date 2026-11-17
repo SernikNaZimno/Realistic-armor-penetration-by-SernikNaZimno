@@ -8,10 +8,11 @@ of state.
 
 Built-in materials: 4340 steel, tungsten heavy alloy and 99.5 % alumina.
 
-Status: **M10 — user documentation.** See the [user guide](docs/user-guide.md)
-for building, the desktop application, the command line, the scenario file
-and how to read the results. Armor shapes from STL files (M9) and a GPU
-port of the three-dimensional solver are not implemented yet.
+Status: **M9 — armor from STL files.** The armor can be an array of plates
+or a solid of any shape read from an STL file. See the
+[user guide](docs/user-guide.md) for building, the desktop application, the
+command line, the scenario file and how to read the results. A GPU port of
+the three-dimensional solver is not implemented yet.
 
 ## Usage
 
@@ -134,6 +135,29 @@ shortcut is not a substitute.
 
 See [ADR 0003](docs/adr/0003-three-dimensional-models.md) for the design.
 
+## Armor from STL files
+
+The solid enclosed by an STL mesh, binary or text, is filled with particles
+within the armor half-width of the shot line; the shot is placed by a point
+and a direction in the coordinates of the file. The model is
+three-dimensional and whole, since an arbitrary shape has no symmetry.
+
+Checked in `crates/rap-geometry` and `crates/rap-app/tests/mesh_armor.rs`:
+a box and an octahedron are filled to their volumes, also when lattice
+lines pass exactly through edges and corners; a mesh with a hole is
+refused; and a 6 mm plate given as a mesh and struck at 45° by a tungsten
+rod at 1500 m/s lets it through at 1013 m/s, against 1034 m/s for the same
+plate given as layers in the half model.
+
+The example [cast-dome.json](docs/examples/cast-dome.json) fires an 8 mm by
+48 mm tungsten rod at 1500 m/s into the 30 mm wall of a hollow steel dome,
+off its axis, where the way through the wall is 31.5 mm. At 3 cells per
+radius the model has 183 479 particles and takes about four minutes; the
+rod leaves the wall with 76 % of its mass at 803 m/s. There is no reference
+value for this case.
+
+See [ADR 0004](docs/adr/0004-armor-from-stl-meshes.md) for the design.
+
 ## GPU solver
 
 The GPU solver implements the same scheme as the CPU solver in single
@@ -174,6 +198,8 @@ See [ADR 0002](docs/adr/0002-gpu-solver.md) for the design.
   strength, so a rod that perforates a plate is reported as largely failed
   debris, and the mass counted behind the armor includes that debris.
 - All armor layers are bonded to each other.
+- Armor from an STL file is one material, and the piece of it that is
+  modelled is not confined by the armor around it.
 - The armor face shape is the same on both sides of the shot line, and in an
   axisymmetric model it is a surface of revolution.
 - The desktop application reassembles the model after every edit, which
@@ -192,12 +218,12 @@ See [ADR 0002](docs/adr/0002-gpu-solver.md) for the design.
 |---|---|
 | `rap-domain` | projectile, armor, layer, scenario, units |
 | `rap-materials` | strength, equation of state and damage models |
-| `rap-geometry` | parametric shapes and particle sampling |
+| `rap-geometry` | parametric shapes, triangle meshes and particle sampling |
 | `rap-solver` | solver abstraction |
 | `rap-solver-cpu` | reference `f64` MPM solver |
 | `rap-solver-gpu` | `f32` MPM solver in wgpu compute shaders, checked against the CPU solver |
 | `rap-analysis` | post-processing of results |
-| `rap-io` | scenarios, checkpoints, export |
+| `rap-io` | scenario files, STL meshes, VTK export |
 | `rap-app` | use cases shared by the front ends |
 | `rap-ui` | desktop interface (egui) |
 | `rap-cli` | headless front end (`rap` binary) |
@@ -225,6 +251,6 @@ cargo run -p rap-cli
 - M6 — GPU solver for the two-dimensional models
 - M7 — three-dimensional models on the CPU (true oblique impact)
 - M8 — ceramics (Johnson–Holmquist JH-2)
-- M9 — armor shapes from STL files
-- M10 — user documentation (done ahead of M9)
+- M9 — armor of any shape from STL files
+- M10 — user documentation
 - M11 — three-dimensional solver and ceramics on the GPU

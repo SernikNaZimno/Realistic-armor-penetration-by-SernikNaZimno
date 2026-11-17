@@ -11,6 +11,7 @@ pub mod material_id;
 pub mod projectile;
 pub mod scenario;
 pub mod settings;
+pub mod target;
 pub mod validation;
 
 pub use armor::{Armor, ArmorLayer, ProfilePoint};
@@ -18,6 +19,7 @@ pub use material_id::MaterialId;
 pub use projectile::{ApbcProjectile, ApfsdsProjectile, BallisticCap, NoseShape, Projectile};
 pub use scenario::Scenario;
 pub use settings::{Backend, ObliqueModel, SimulationSettings};
+pub use target::{SolidArmor, Target};
 pub use validation::{DomainError, InvalidParameter};
 
 /// Human-readable application name shown by every front end.

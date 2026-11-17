@@ -1,6 +1,7 @@
 //! Scenario files and result export.
 
 pub mod scenario_file;
+pub mod stl;
 pub mod vtk;
 
 use std::path::PathBuf;
@@ -8,6 +9,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub use scenario_file::{FORMAT_VERSION, ScenarioFile};
+pub use stl::StlError;
 
 /// Reasons a file cannot be read or written.
 #[derive(Debug, Error)]
@@ -27,6 +29,14 @@ pub enum IoError {
         path: PathBuf,
         /// The underlying error.
         source: std::io::Error,
+    },
+    /// The file is not a usable STL mesh.
+    #[error("cannot use {} as a mesh: {source}", path.display())]
+    Stl {
+        /// The file.
+        path: PathBuf,
+        /// What is wrong with it.
+        source: StlError,
     },
     /// The text is not a valid scenario.
     #[error("invalid scenario: {0}")]

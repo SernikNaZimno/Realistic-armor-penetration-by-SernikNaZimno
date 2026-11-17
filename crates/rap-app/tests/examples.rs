@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use rap_app::{ModelKind, assemble, assemble_solid};
+use rap_app::{ModelKind, assemble, assemble_mesh, assemble_solid, load_mesh};
 use rap_io::ScenarioFile;
 
 fn example(name: &str) -> ScenarioFile {
@@ -30,6 +30,8 @@ fn every_example_is_listed_here() {
         names,
         [
             "capped-shot-domed-plate.json",
+            "cast-dome.json",
+            "cast-dome.stl",
             "ceramic-spaced-armor.json",
             "oblique-plate.json"
         ]
@@ -78,4 +80,38 @@ fn oblique_plate_assembles_as_a_solid_half_model() {
         assemble_solid(&file.scenario, &file.settings, &file.materials).expect("a valid example");
     assert_eq!(assembly.model.validate(), Ok(()));
     assert!((assembly.layout.armor_back - assembly.layout.armor_face - 0.024).abs() < 1e-9);
+}
+
+#[test]
+fn cast_dome_reads_its_mesh_and_assembles_as_a_whole_solid_model() {
+    let file = example("cast-dome.json");
+    let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples");
+    let mesh = load_mesh(&file.scenario, &folder)
+        .expect("the mesh file is readable")
+        .expect("the armor is a mesh");
+    let assembly = assemble_mesh(&file.scenario, &file.settings, &file.materials, &mesh)
+        .expect("a valid example");
+    let (model, layout) = (&assembly.model, &assembly.layout);
+    assert_eq!(layout.kind, ModelKind::Solid);
+    assert_eq!(model.validate(), Ok(()));
+    // The 30 mm wall is struck obliquely, so the way through it is longer,
+    // and the depth limit keeps the far wall of the dome out of the model.
+    let path = layout.armor_back - layout.armor_face;
+    assert!(path > 0.030 && path < 0.070, "{path}");
+    // The armor lies on both sides of the plane of the picture.
+    let above = model
+        .seeds
+        .iter()
+        .filter(|seed| seed.body == layout.armor_body)
+        .filter(|seed| seed.position.z > layout.symmetry_plane)
+        .count();
+    let armor = model
+        .seeds
+        .iter()
+        .filter(|seed| seed.body == layout.armor_body)
+        .count();
+    assert!(
+        above > armor / 4 && above < 3 * armor / 4,
+        "{above} of {armor}"
+    );
 }

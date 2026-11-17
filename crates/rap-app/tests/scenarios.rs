@@ -35,9 +35,14 @@ fn scenario(layers: Vec<ArmorLayer>, obliquity_degrees: f64) -> Scenario {
             layers,
             obliquity: obliquity_degrees.to_radians(),
             face_profile: Vec::new(),
-        },
+        }
+        .into(),
         impact_speed: 1500.0,
     }
+}
+
+fn plates(scenario: &mut Scenario) -> &mut Armor {
+    scenario.armor.plates_mut().expect("an array of plates")
 }
 
 #[test]
@@ -178,7 +183,7 @@ fn capped_shot_gets_a_separate_cap_body() {
 fn problems_are_reported() {
     let settings = SimulationSettings::default();
     let mut unknown = scenario(vec![plate(0.05, 0.0)], 0.0);
-    unknown.armor.layers[0].material = MaterialId::new("unobtainium");
+    plates(&mut unknown).layers[0].material = MaterialId::new("unobtainium");
     assert_eq!(
         assemble(&unknown, &settings, &[]).unwrap_err(),
         AppError::UnknownMaterial(MaterialId::new("unobtainium"))
@@ -274,7 +279,7 @@ fn face_profile_shapes_every_layer() {
     let mut shaped = scenario(vec![plate(0.01, 0.0), plate(0.02, 0.0)], 0.0);
     // Flat within 10 mm of the shot line, then sloping 10 mm back by 20 mm
     // and 5 mm forward of the centre from 30 mm outwards.
-    shaped.armor.face_profile = vec![
+    plates(&mut shaped).face_profile = vec![
         ProfilePoint {
             lateral: 0.010,
             offset: 0.0,

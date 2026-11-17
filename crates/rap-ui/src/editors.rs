@@ -2,9 +2,11 @@
 //! Each returns whether the user changed anything.
 
 use eframe::egui;
+use rap_domain::material_id::STEEL_4340;
 use rap_domain::{
     ApbcProjectile, ApfsdsProjectile, Armor, ArmorLayer, Backend, BallisticCap, MaterialId,
-    NoseShape, ObliqueModel, ProfilePoint, Projectile, Scenario, SimulationSettings,
+    NoseShape, ObliqueModel, ProfilePoint, Projectile, Scenario, SimulationSettings, SolidArmor,
+    Target,
 };
 
 use crate::widgets::{degrees, material_picker, millimetres, row, scaled};
@@ -347,8 +349,170 @@ pub(crate) fn next_profile_point(profile: &[ProfilePoint]) -> ProfilePoint {
     )
 }
 
-/// Editor of the armor: obliquity, layers and face shape.
-pub(crate) fn armor(ui: &mut egui::Ui, armor: &mut Armor, materials: &[MaterialId]) -> bool {
+/// Kinds of armor the editor can create.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArmorKind {
+    Plates,
+    Solid,
+}
+
+impl ArmorKind {
+    const ALL: [Self; 2] = [Self::Plates, Self::Solid];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Plates => "Plates — layers with a shaped face",
+            Self::Solid => "Solid — any shape, from an STL file",
+        }
+    }
+
+    fn of(target: &Target) -> Option<Self> {
+        match target {
+            Target::Plates(_) => Some(Self::Plates),
+            Target::Solid(_) => Some(Self::Solid),
+            _ => None,
+        }
+    }
+
+    /// Armor of this kind to start editing from.
+    fn initial(self, materials: &[MaterialId]) -> Target {
+        let material = materials
+            .first()
+            .cloned()
+            .unwrap_or_else(|| MaterialId::new(STEEL_4340));
+        match self {
+            Self::Plates => Armor::flat(
+                vec![ArmorLayer {
+                    material,
+                    thickness: 0.05,
+                    gap_before: 0.0,
+                }],
+                0.0,
+            )
+            .into(),
+            Self::Solid => SolidArmor::new("", material).into(),
+        }
+    }
+}
+
+/// Units a mesh file may be written in, with their length in metres.
+const UNITS: [(&str, f64); 4] = [
+    ("millimetres", 1.0e-3),
+    ("centimetres", 1.0e-2),
+    ("metres", 1.0),
+    ("inches", 0.0254),
+];
+
+fn unit_label(metres_per_unit: f64) -> &'static str {
+    UNITS
+        .iter()
+        .find(|(_, length)| (length - metres_per_unit).abs() <= 1.0e-9 * length)
+        .map_or("other", |(label, _)| label)
+}
+
+/// Three numbers side by side.
+fn vector(ui: &mut egui::Ui, values: &mut [f64; 3], speed: f64) -> bool {
+    ui.horizontal(|ui| {
+        let mut changed = false;
+        for value in values {
+            changed |= ui.add(egui::DragValue::new(value).speed(speed)).changed();
+        }
+        changed
+    })
+    .inner
+}
+
+/// Editor of armor given by a mesh file.
+fn solid(ui: &mut egui::Ui, solid: &mut SolidArmor, materials: &[MaterialId]) -> bool {
+    let mut changed = false;
+    egui::Grid::new("solid-armor")
+        .num_columns(2)
+        .show(ui, |ui| {
+            changed |= row(ui, "STL file", |ui| {
+                ui.horizontal(|ui| {
+                    let mut edited = ui.text_edit_singleline(&mut solid.file).changed();
+                    if ui.button("Browse…").clicked() {
+                        let picked = rfd::FileDialog::new()
+                            .add_filter("STL mesh", &["stl"])
+                            .pick_file();
+                        if let Some(path) = picked {
+                            solid.file = path.display().to_string();
+                            edited = true;
+                        }
+                    }
+                    edited
+                })
+                .inner
+            });
+            changed |= row(ui, "File units", |ui| {
+                let mut picked = false;
+                egui::ComboBox::from_id_salt("mesh-units")
+                    .selected_text(unit_label(solid.metres_per_unit))
+                    .show_ui(ui, |ui| {
+                        for (label, length) in UNITS {
+                            let selected = unit_label(solid.metres_per_unit) == label;
+                            if ui.selectable_label(selected, label).clicked() && !selected {
+                                solid.metres_per_unit = length;
+                                picked = true;
+                            }
+                        }
+                    });
+                picked
+            });
+            changed |= row(ui, "Material", |ui| {
+                material_picker(ui, "solid-material", &mut solid.material, materials)
+            });
+            changed |= row(ui, "Aim point", |ui| vector(ui, &mut solid.aim_point, 1.0));
+            changed |= row(ui, "Direction", |ui| vector(ui, &mut solid.direction, 0.01));
+            changed |= row(ui, "Depth limit", |ui| {
+                ui.horizontal(|ui| {
+                    let mut limited = solid.max_depth.is_some();
+                    let mut edited = ui.checkbox(&mut limited, "").changed();
+                    if edited {
+                        solid.max_depth = limited.then_some(0.1);
+                    }
+                    if let Some(depth) = &mut solid.max_depth {
+                        edited |= millimetres(ui, depth, 1.0..=5000.0);
+                    }
+                    edited
+                })
+                .inner
+            });
+        });
+    ui.weak(
+        "The aim point and the direction of flight are in the coordinates of the file. The \
+         projectile strikes where the line through the aim point enters the solid. A depth \
+         limit leaves out what lies further behind that point.",
+    );
+    changed
+}
+
+/// Editor of the armor: its kind, then plates or a solid.
+pub(crate) fn armor(ui: &mut egui::Ui, target: &mut Target, materials: &[MaterialId]) -> bool {
+    let current = ArmorKind::of(target);
+    let mut changed = false;
+    egui::ComboBox::from_id_salt("armor-kind")
+        .selected_text(current.map_or("Other", ArmorKind::label))
+        .show_ui(ui, |ui| {
+            for kind in ArmorKind::ALL {
+                let selected = current == Some(kind);
+                if ui.selectable_label(selected, kind.label()).clicked() && !selected {
+                    *target = kind.initial(materials);
+                    changed = true;
+                }
+            }
+        });
+    ui.add_space(4.0);
+    changed
+        | match target {
+            Target::Plates(armor) => plates(ui, armor, materials),
+            Target::Solid(armor) => solid(ui, armor, materials),
+            _ => false,
+        }
+}
+
+/// Editor of an array of plates: obliquity, layers and face shape.
+fn plates(ui: &mut egui::Ui, armor: &mut Armor, materials: &[MaterialId]) -> bool {
     let mut changed = false;
     egui::Grid::new("armor").num_columns(2).show(ui, |ui| {
         changed |= row(ui, "Obliquity", |ui| {

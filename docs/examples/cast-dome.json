@@ -1,0 +1,29 @@
+{
+  "format_version": 1,
+  "scenario": {
+    "projectile": {
+      "type": "apfsds",
+      "rod_diameter": 0.008,
+      "rod_length": 0.048,
+      "nose": { "shape": "hemisphere" },
+      "material": "tungsten-heavy-alloy"
+    },
+    "armor": {
+      "mesh": {
+        "file": "cast-dome.stl",
+        "metres_per_unit": 0.001,
+        "material": "steel-4340",
+        "aim_point": [-120, 25, 45],
+        "direction": [1, 0, -0.3],
+        "max_depth": 0.07
+      }
+    },
+    "impact_speed": 1500
+  },
+  "settings": {
+    "cells_per_radius": 3,
+    "armor_extent_radii": 5,
+    "backend": "cpu",
+    "snapshots": 10
+  }
+}

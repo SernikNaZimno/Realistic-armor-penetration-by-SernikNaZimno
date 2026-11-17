@@ -23,7 +23,7 @@ fn steel_plate(thickness: f64) -> Armor {
 pub fn apbc_against_steel() -> ScenarioFile {
     ScenarioFile::new(Scenario {
         projectile: Projectile::Apbc(ApbcProjectile::generic_76mm()),
-        armor: steel_plate(0.06),
+        armor: steel_plate(0.06).into(),
         impact_speed: 700.0,
     })
 }
@@ -33,7 +33,7 @@ pub fn apbc_against_steel() -> ScenarioFile {
 pub fn apfsds_against_steel() -> ScenarioFile {
     ScenarioFile::new(Scenario {
         projectile: Projectile::Apfsds(ApfsdsProjectile::generic_120mm()),
-        armor: steel_plate(0.4),
+        armor: steel_plate(0.4).into(),
         impact_speed: 1600.0,
     })
 }

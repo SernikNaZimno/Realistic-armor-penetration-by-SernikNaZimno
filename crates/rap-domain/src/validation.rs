@@ -25,6 +25,9 @@ pub enum DomainError {
     /// An armor array was defined without any layer.
     #[error("armor must contain at least one layer")]
     EmptyArmor,
+    /// Armor given by a mesh does not name the file that holds it.
+    #[error("armor given by a mesh must name its STL file")]
+    NoMeshFile,
 }
 
 fn check(

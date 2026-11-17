@@ -119,7 +119,8 @@ mod tests {
                 }],
                 obliquity: 0.0,
                 face_profile: Vec::new(),
-            },
+            }
+            .into(),
             impact_speed: 1650.0,
         }
     }

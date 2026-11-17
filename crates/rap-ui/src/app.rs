@@ -7,7 +7,8 @@ use glam::DVec2;
 use rap_analysis::{ImpactSummary, bounding_box};
 use rap_app::{ModelKind, Simulation, presets};
 use rap_domain::{Backend, SimulationSettings};
-use rap_io::{IoError, ScenarioFile};
+use rap_geometry::TriangleMesh;
+use rap_io::{IoError, ScenarioFile, stl};
 use rap_solver::{Particle, Symmetry};
 
 use crate::runner::{Runner, Snapshot, Update};
@@ -28,14 +29,14 @@ struct Preview {
 }
 
 impl Preview {
-    fn new(file: &ScenarioFile) -> Result<Self, String> {
+    fn new(file: &ScenarioFile, mesh: Option<&TriangleMesh>) -> Result<Self, String> {
         // The preview only shows the initial state, so it never needs the
         // solver chosen for the run.
         let settings = SimulationSettings {
             backend: Backend::Cpu,
             ..file.settings.clone()
         };
-        let simulation = Simulation::new(&file.scenario, &settings, &file.materials)
+        let simulation = Simulation::with_mesh(&file.scenario, &settings, &file.materials, mesh)
             .map_err(|error| error.to_string())?;
         let cell_size = simulation.layout().cell_size;
         let margin = DVec2::splat(VIEW_MARGIN_CELLS * cell_size);
@@ -69,6 +70,8 @@ struct Run {
 pub struct App {
     file: ScenarioFile,
     path: Option<PathBuf>,
+    /// The mesh the armor refers to and the file it was read from.
+    mesh: Option<(PathBuf, TriangleMesh)>,
     preview: Result<Preview, String>,
     run: Option<Run>,
     field: Field,
@@ -88,16 +91,18 @@ impl App {
     /// Creates the window state for editing `file`.
     #[must_use]
     pub fn new(file: ScenarioFile) -> Self {
-        let preview = Preview::new(&file);
-        Self {
+        let mut app = Self {
             file,
             path: None,
-            preview,
+            mesh: None,
+            preview: Err(String::new()),
             run: None,
             field: Field::Material,
             camera: Camera::default(),
             message: None,
-        }
+        };
+        app.rebuild_preview();
+        app
     }
 
     /// Why the scenario cannot be simulated, if it cannot.
@@ -141,8 +146,9 @@ impl App {
     /// is then kept.
     pub fn open(&mut self, path: &Path) -> Result<(), IoError> {
         let file = ScenarioFile::load(path)?;
-        self.set_file(file);
+        // A mesh named by the scenario is looked for next to it.
         self.path = Some(path.to_owned());
+        self.set_file(file);
         Ok(())
     }
 
@@ -153,11 +159,42 @@ impl App {
     pub fn save(&mut self, path: &Path) -> Result<(), IoError> {
         self.file.save(path)?;
         self.path = Some(path.to_owned());
+        // A mesh named relative to the old place may not be found from here.
+        self.rebuild_preview();
         Ok(())
     }
 
+    /// Reads the mesh the armor refers to, unless it has been read already.
+    /// A relative file name starts at the folder of the scenario file.
+    fn refresh_mesh(&mut self) -> Result<(), String> {
+        let Some(solid) = self.file.scenario.armor.solid() else {
+            self.mesh = None;
+            return Ok(());
+        };
+        solid.validate().map_err(|error| error.to_string())?;
+        let folder = self.path.as_deref().and_then(Path::parent);
+        let path = folder.unwrap_or_else(|| Path::new("")).join(&solid.file);
+        if self
+            .mesh
+            .as_ref()
+            .is_some_and(|(loaded, _)| *loaded == path)
+        {
+            return Ok(());
+        }
+        self.mesh = None;
+        let mesh = stl::load(&path).map_err(|error| error.to_string())?;
+        self.mesh = Some((path, mesh));
+        Ok(())
+    }
+
+    fn mesh(&self) -> Option<&TriangleMesh> {
+        self.mesh.as_ref().map(|(_, mesh)| mesh)
+    }
+
     fn rebuild_preview(&mut self) {
-        self.preview = Preview::new(&self.file);
+        self.preview = self
+            .refresh_mesh()
+            .and_then(|()| Preview::new(&self.file, self.mesh()));
     }
 
     /// Starts simulating the scenario. Does nothing if it is invalid or a
@@ -170,10 +207,11 @@ impl App {
         let Ok(preview) = &self.preview else {
             return;
         };
-        let simulation = match Simulation::new(
+        let simulation = match Simulation::with_mesh(
             &self.file.scenario,
             &self.file.settings,
             &self.file.materials,
+            self.mesh(),
         ) {
             Ok(simulation) => simulation,
             Err(error) => {
@@ -250,13 +288,13 @@ impl App {
     fn file_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("New", |ui| {
             if ui.button("APFSDS against steel").clicked() {
-                self.set_file(presets::apfsds_against_steel());
                 self.path = None;
+                self.set_file(presets::apfsds_against_steel());
                 ui.close_menu();
             }
             if ui.button("APBC against steel").clicked() {
-                self.set_file(presets::apbc_against_steel());
                 self.path = None;
+                self.set_file(presets::apbc_against_steel());
                 ui.close_menu();
             }
         });
@@ -600,7 +638,8 @@ mod tests {
     fn invalid_scenario_is_explained_and_cannot_be_started() {
         let ctx = egui::Context::default();
         let mut file = quick_file();
-        file.scenario.armor.layers[0].thickness = 0.0;
+        let armor = file.scenario.armor.plates_mut().expect("plates");
+        armor.layers[0].thickness = 0.0;
         let mut app = App::new(file);
         let problem = app.problem().expect("a zero-thickness layer is invalid");
         assert!(problem.contains("layer.thickness"), "{problem}");
@@ -625,5 +664,42 @@ mod tests {
         assert!(other.open(&missing).is_err());
         // A failed open keeps what was there.
         assert_eq!(other.file.settings, quick_file().settings);
+    }
+
+    #[test]
+    fn armor_from_a_mesh_file_is_read_from_next_to_the_scenario() {
+        use glam::DVec3;
+        use rap_domain::{MaterialId, SolidArmor};
+        use rap_geometry::TriangleMesh;
+
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let block = TriangleMesh::cuboid(DVec3::new(0.0, -100.0, -100.0), DVec3::splat(100.0));
+        std::fs::write(
+            directory.path().join("block.stl"),
+            rap_io::stl::to_text(&block, "block"),
+        )
+        .expect("the mesh is written");
+        let mut file = quick_file();
+        let mut solid = SolidArmor::new("block.stl", MaterialId::new("steel-4340"));
+        solid.max_depth = Some(0.02);
+        file.scenario.armor = solid.into();
+        let path = directory.path().join("scenario.json");
+        file.save(&path).expect("the scenario is saved");
+
+        // Without the folder of the scenario the mesh cannot be found.
+        let mut app = App::new(file);
+        let problem = app.problem().expect("the mesh is not here");
+        assert!(problem.contains("block.stl"), "{problem}");
+
+        app.open(&path).expect("the scenario is opened");
+        assert_eq!(app.problem(), None);
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            frame(&mut app, &ctx);
+        }
+        // Back to plates, the mesh is forgotten.
+        app.set_file(quick_file());
+        assert_eq!(app.problem(), None);
+        assert!(app.mesh().is_none());
     }
 }

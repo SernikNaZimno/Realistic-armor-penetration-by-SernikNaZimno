@@ -2,18 +2,18 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::armor::Armor;
 use crate::projectile::Projectile;
+use crate::target::Target;
 use crate::validation::{self, DomainError};
 
-/// One projectile striking one armor array.
+/// One projectile striking one piece of armor.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scenario {
     /// The striking projectile.
     pub projectile: Projectile,
     /// The target.
-    pub armor: Armor,
+    pub armor: Target,
     /// Projectile speed at impact, in metres per second.
     pub impact_speed: f64,
 }
@@ -49,7 +49,8 @@ mod tests {
                 }],
                 obliquity: 0.0,
                 face_profile: Vec::new(),
-            },
+            }
+            .into(),
             impact_speed,
         }
     }

@@ -21,3 +21,6 @@ rap-solver-cpu.workspace = true
 rap-solver-gpu.workspace = true
 rap-solver.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

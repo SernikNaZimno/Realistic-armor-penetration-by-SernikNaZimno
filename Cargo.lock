@@ -2771,6 +2771,7 @@ dependencies = [
  "rap-solver",
  "rap-solver-cpu",
  "rap-solver-gpu",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -2803,6 +2804,7 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "rap-domain",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2811,6 +2813,7 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "rap-domain",
+ "rap-geometry",
  "rap-materials",
  "rap-solver",
  "serde",
@@ -2876,6 +2879,7 @@ dependencies = [
  "rap-analysis",
  "rap-app",
  "rap-domain",
+ "rap-geometry",
  "rap-io",
  "rap-materials",
  "rap-solver",

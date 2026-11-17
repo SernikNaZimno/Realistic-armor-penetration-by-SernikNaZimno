@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use rap_app::{ModelKind, Simulation, presets};
+use rap_app::{ModelKind, Simulation, load_mesh, presets};
 use rap_domain::{APP_NAME, Backend};
 use rap_io::{ScenarioFile, vtk};
 use rap_materials::{EquationOfState, library};
@@ -148,8 +148,17 @@ fn run(
     if options.force_gpu {
         file.settings.backend = Backend::Gpu;
     }
-    let mut simulation = Simulation::new(&file.scenario, &file.settings, &file.materials)
+    // A mesh file named by the scenario is looked for next to it.
+    let folder = scenario.parent().unwrap_or_else(|| Path::new(""));
+    let mesh = load_mesh(&file.scenario, folder)
         .with_context(|| format!("cannot simulate {}", scenario.display()))?;
+    let mut simulation = Simulation::with_mesh(
+        &file.scenario,
+        &file.settings,
+        &file.materials,
+        mesh.as_ref(),
+    )
+    .with_context(|| format!("cannot simulate {}", scenario.display()))?;
     fs::create_dir_all(directory)
         .with_context(|| format!("cannot create {}", directory.display()))?;
 
@@ -157,6 +166,7 @@ fn run(
     let symmetry = match layout.kind {
         ModelKind::Axisymmetric => "axisymmetric",
         ModelKind::PlaneStrain => "plane strain",
+        ModelKind::Solid if mesh.is_some() => "three-dimensional (whole model)",
         ModelKind::Solid => "three-dimensional (half model)",
     };
     writeln!(output, "{APP_NAME}")?;

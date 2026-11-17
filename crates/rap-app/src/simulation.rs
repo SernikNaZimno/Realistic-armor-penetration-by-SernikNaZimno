@@ -4,13 +4,15 @@ use std::borrow::Cow;
 
 use glam::{DMat2, DVec2};
 use rap_analysis::{ImpactSummary, ShotLine, Tracer, summarize_tracers};
-use rap_domain::{Backend, Scenario, SimulationSettings};
+use rap_domain::{Backend, Scenario, SimulationSettings, Target};
+use rap_geometry::TriangleMesh;
 use rap_materials::Material;
 use rap_solver::{Deviator, Particle, Particle3, Solver, Solver3};
 use rap_solver_cpu::{MpmSolver, MpmSolver3};
 use rap_solver_gpu::GpuSolver;
 
 use crate::AppError;
+use crate::assemble::mesh::assemble_mesh;
 use crate::assemble::{Layout, ModelKind, assemble, assemble_solid};
 
 /// The solver behind a simulation.
@@ -68,18 +70,41 @@ impl Simulation {
     /// # Errors
     /// Returns [`AppError`] if the scenario cannot be turned into a model
     /// or the chosen solver cannot be started. A missing GPU is an error;
-    /// the CPU solver is never substituted silently.
+    /// the CPU solver is never substituted silently. Armor given by a mesh
+    /// is an error here; use [`Self::with_mesh`].
     pub fn new(
         scenario: &Scenario,
         settings: &SimulationSettings,
         custom_materials: &[Material],
+    ) -> Result<Self, AppError> {
+        Self::with_mesh(scenario, settings, custom_materials, None)
+    }
+
+    /// Prepares the simulation of `scenario` like [`Self::new`]; `mesh` is
+    /// the solid its armor refers to, if the armor is given by one. See
+    /// [`crate::load_mesh`].
+    ///
+    /// # Errors
+    /// Returns [`AppError`] if the scenario cannot be turned into a model
+    /// or the chosen solver cannot be started, and
+    /// [`AppError::MeshRequired`] if the armor needs a mesh and there is
+    /// none.
+    pub fn with_mesh(
+        scenario: &Scenario,
+        settings: &SimulationSettings,
+        custom_materials: &[Material],
+        mesh: Option<&TriangleMesh>,
     ) -> Result<Self, AppError> {
         let (engine, solver_name, layout) = match ModelKind::of(scenario, settings) {
             ModelKind::Solid => {
                 if settings.backend == Backend::Gpu {
                     return Err(AppError::SolidOnGpu);
                 }
-                let assembly = assemble_solid(scenario, settings, custom_materials)?;
+                let assembly = match (&scenario.armor, mesh) {
+                    (Target::Plates(_), _) => assemble_solid(scenario, settings, custom_materials)?,
+                    (_, Some(mesh)) => assemble_mesh(scenario, settings, custom_materials, mesh)?,
+                    (_, None) => return Err(AppError::MeshRequired),
+                };
                 let solver = MpmSolver3::new(assembly.model)?;
                 (
                     Engine::Solid(Box::new(solver)),
@@ -169,13 +194,14 @@ impl Simulation {
         })
     }
 
-    /// The particles of a solid model that lie against its symmetry plane,
-    /// as a two-dimensional picture.
+    /// The particles of a solid model that lie just above the plane its
+    /// picture shows, as a two-dimensional picture.
     fn cross_section(&self, particles: &[Particle3]) -> Vec<Particle> {
-        let limit = self.layout.symmetry_plane + self.layout.cell_size / 2.0;
+        let plane = self.layout.symmetry_plane;
+        let slice = plane..plane + self.layout.cell_size / 2.0;
         particles
             .iter()
-            .filter(|particle| particle.position.z < limit)
+            .filter(|particle| slice.contains(&particle.position.z))
             .map(in_plane)
             .collect()
     }
