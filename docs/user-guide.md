@@ -76,19 +76,21 @@ the reason is shown in red above the editors and *Run* is disabled.
 suspend and continue it; *Reset* discards it and returns to editing. The
 editors are locked while a run exists.
 
-A two-dimensional model is drawn as its particles: drag to pan, scroll to
-zoom and double-click to reset. An axisymmetric model is drawn mirrored
-about its axis.
+A model is drawn in three dimensions as shaded solids. Drag to turn it,
+drag with the right button to move it, scroll to zoom and double-click to
+reset. The armor is grey and the projectile coloured by material; failed
+material is darker. With *Section* ticked the model is cut along the shot
+line, which shows the inside of the projectile and of the crater. An
+axisymmetric model is shown as the half behind that cut, swept round its
+axis, and a model of an oblique plate is one half of the whole; both are
+always seen in section.
 
-A three-dimensional model is drawn as shaded solids. Drag to turn the
-model, drag with the right button to move it, scroll to zoom and
-double-click to reset. The armor is grey and the projectile coloured by
-material; failed material is darker. With *Section* ticked the model is
-cut along the shot line, which shows the inside of the projectile and of
-the crater; a model of an oblique plate is one half of the whole and is
-always seen that way. Untick *3D* to see the flat slice through the shot
-line instead; for armor from an STL file that slice is as close to upright
-in the file as the shot allows.
+Untick *3D* for the flat picture of the particles instead: drag to pan,
+scroll to zoom and double-click to reset. An axisymmetric model is drawn
+mirrored about its axis; for a three-dimensional model the picture is the
+slice through the shot line, which for armor from an STL file is as close
+to upright in the file as the shot allows. A model in plane strain has
+only this picture.
 
 *Colour by* selects what the colours show in either view.
 
@@ -116,7 +118,7 @@ whether the armor was perforated. Options of `run`:
 | `-o`, `--output-dir <DIR>` | where to write the results; default `<scenario name>-results` next to the scenario |
 | `--no-snapshots` | write only the summary |
 | `--gpu` | use the GPU solver, whatever the scenario says |
-| `--pictures` | write `picture_NNNN.png` of a three-dimensional model at every snapshot |
+| `--pictures` | write `picture_NNNN.png`, a three-dimensional picture of the model, at every snapshot; not for a model in plane strain |
 | `--colour-by <FIELD>` | what the pictures show: `material` (default), `damage`, `strain`, `pressure`, `temperature` or `speed` |
 | `--view <YAW,PITCH>` | viewing direction in degrees; `0,0` is a side view of the section |
 | `--picture-size <WIDTHxHEIGHT>` | size of the pictures; default `1280x720` |

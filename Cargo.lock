@@ -2768,6 +2768,7 @@ dependencies = [
  "rap-geometry",
  "rap-io",
  "rap-materials",
+ "rap-render",
  "rap-solver",
  "rap-solver-cpu",
  "rap-solver-gpu",

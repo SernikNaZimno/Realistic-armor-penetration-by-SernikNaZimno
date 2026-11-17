@@ -2,6 +2,7 @@
 //! a solver model, running it and reporting the outcome.
 
 pub mod assemble;
+pub mod picture;
 pub mod presets;
 pub mod simulation;
 

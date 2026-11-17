@@ -9,10 +9,12 @@ use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use glam::Vec3;
 use rap_app::Simulation;
-use rap_render::{Camera, Cloud, Field, Image, Rgb, Surface};
+use rap_render::{Camera, Field, Image, Rgb, Surface};
 
 /// Background of the pictures.
 const BACKGROUND: Rgb = [255, 255, 255];
+/// Most points of the cloud made of an axisymmetric model.
+const CLOUD_BUDGET: usize = 4_000_000;
 /// Largest picture edge accepted, in pixels.
 const MAX_EDGE: usize = 8192;
 
@@ -124,7 +126,7 @@ pub(crate) struct Framing(Option<(Vec3, Vec3)>);
 /// Writes the picture of the current state of `simulation` to `path` and
 /// returns the range of values its colours span. The first picture sets
 /// `framing` for those that follow. Returns `None`, and writes nothing, for
-/// a two-dimensional model.
+/// a model in plane strain.
 ///
 /// # Errors
 /// Fails if the file cannot be written.
@@ -134,16 +136,9 @@ pub(crate) fn save(
     framing: &mut Framing,
     path: &Path,
 ) -> Result<Option<(f64, f64)>> {
-    let Some(particles) = simulation.solid_particles() else {
+    let Some(cloud) = rap_app::picture::cloud(simulation, CLOUD_BUDGET) else {
         return Ok(None);
     };
-    let layout = simulation.layout();
-    let cloud = Cloud::new(
-        &particles,
-        layout.symmetry_plane,
-        layout.half,
-        layout.armor_body,
-    );
     let mut surface = Surface::extract(&cloud, options.section);
     surface.bounds = *framing.0.get_or_insert(surface.bounds);
     let image = Image::of(

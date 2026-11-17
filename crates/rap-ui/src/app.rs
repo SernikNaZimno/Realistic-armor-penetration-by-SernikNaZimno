@@ -25,7 +25,7 @@ const VIEW_MARGIN_CELLS: f64 = 4.0;
 /// The scenario as assembled for the solver, before any time has passed.
 struct Preview {
     simulation: Simulation,
-    /// All particles of a solid model, for the three-dimensional view.
+    /// The model as a cloud for the three-dimensional view, if it has one.
     cloud: Option<Cloud>,
     bounds: (DVec2, DVec2),
     particle_size: f64,
@@ -82,8 +82,8 @@ pub struct App {
     field: Field,
     camera: Camera,
     camera3: Camera3,
-    /// Whether a solid model is shown in three dimensions rather than as
-    /// its slice.
+    /// Whether the model is shown in three dimensions, if it can be,
+    /// rather than as its flat picture.
     solid_view: bool,
     /// Whether the three-dimensional view is cut along the shot line.
     section: bool,
@@ -420,7 +420,7 @@ impl App {
         });
     }
 
-    /// All particles of the solid model being shown, if it is one.
+    /// The model being shown as a cloud for the three-dimensional view.
     fn cloud(&self) -> Option<&Cloud> {
         match &self.run {
             Some(run) => run.cloud.as_ref(),

@@ -225,3 +225,90 @@ fn picture_shows_the_model_in_the_middle_and_survives_png() {
 
     assert!(Image::new(0, 10, BACKGROUND).to_png().is_err());
 }
+
+/// The picture of an axisymmetric bar: a rectangle of particles from the
+/// axis at `y = 0.01` out to `radius`, `length` long.
+fn bar(radius: f64, length: f64) -> Vec<rap_solver::Particle> {
+    use glam::{DMat2, DVec2};
+    let mut particles = Vec::new();
+    let (rows, columns) = ((radius / SPACING).round(), (length / SPACING).round());
+    let mut row = 0.0;
+    while row < rows {
+        let mut column = 0.0;
+        while column < columns {
+            let from_axis = (row + 0.5) * SPACING;
+            particles.push(rap_solver::Particle {
+                position: DVec2::new((column + 0.5) * SPACING, 0.01 + from_axis),
+                velocity: DVec2::new(100.0, 0.0),
+                velocity_gradient: DMat2::ZERO,
+                mass: 7830.0 * SPACING * SPACING * from_axis,
+                volume: SPACING * SPACING * from_axis,
+                body: 0,
+                material: 0,
+                deviator: rap_solver::Deviator::default(),
+                pressure: 0.0,
+                viscous_pressure: 0.0,
+                specific_energy: 0.0,
+                plastic_strain: 0.0,
+                plastic_strain_rate: 0.0,
+                temperature: 294.0,
+                damage: 0.0,
+                sound_speed: 5000.0,
+            });
+            column += 1.0;
+        }
+        row += 1.0;
+    }
+    particles
+}
+
+#[test]
+fn axisymmetric_model_is_swept_into_half_a_solid_of_revolution() {
+    let (radius, length) = (0.012, 0.03);
+    let particles = bar(radius, length);
+    let cloud = Cloud::revolved(&particles, 0.01, 1, 10_000_000);
+    assert!((cloud.spacing - 1.0e-3).abs() < 1e-6);
+    assert!(cloud.plane.abs() < f32::EPSILON);
+    // Every point is behind the section plane and within the bar.
+    for point in &cloud.points {
+        let from_axis = (point.position.y - 0.01).hypot(point.position.z);
+        assert!(point.position.z <= 0.0 && f64::from(from_axis) < radius);
+        assert!(!point.armor && (point.speed - 100.0).abs() < 1e-3);
+    }
+    // The points fill half a cylinder about as densely as a lattice would.
+    let expected = std::f64::consts::PI * radius * radius / 2.0 * length / (1.2 * SPACING.powi(3));
+    let count = f64::from(u32::try_from(cloud.points.len()).expect("a small cloud"));
+    assert!(
+        (count / expected - 1.0).abs() < 0.15,
+        "{count} against {expected}"
+    );
+
+    // Its section is the flat face, facing the viewer.
+    let surface = Surface::extract(&cloud, true);
+    let face: Vec<_> = surface
+        .patches
+        .iter()
+        .filter(|patch| patch.point.position.z > -1.0e-3)
+        .filter(|patch| {
+            let position = patch.point.position;
+            (position.y - 0.01).abs() < 0.008 && position.x > 0.005 && position.x < 0.025
+        })
+        .collect();
+    assert!(face.len() > 50, "{}", face.len());
+    assert!(
+        face.iter()
+            .all(|patch| (patch.normal - Vec3::Z).length() < 1e-3)
+    );
+}
+
+#[test]
+fn a_budget_of_points_makes_a_revolved_cloud_coarser() {
+    let particles = bar(0.012, 0.03);
+    let full = Cloud::revolved(&particles, 0.01, 1, 10_000_000);
+    let limited = Cloud::revolved(&particles, 0.01, 1, 2_000);
+    assert!(limited.points.len() < full.points.len() / 2);
+    // One copy of each particle at least, so the budget is only a guide.
+    assert!(limited.points.len() >= particles.len());
+    assert!(limited.spacing > 1.5 * full.spacing);
+    assert_eq!(Cloud::revolved(&[], 0.0, 0, 100).points, Vec::new());
+}

@@ -14,11 +14,15 @@ use crate::view3d::Cloud;
 /// intermediate updates are dropped rather than queued.
 const PENDING_UPDATES: usize = 2;
 
+/// Most points of the cloud made of an axisymmetric model for the
+/// three-dimensional view; more would make every update slow to draw.
+const CLOUD_BUDGET: usize = 600_000;
+
 /// State of the simulation at one instant.
 #[derive(Debug, Clone)]
 pub(crate) struct Snapshot {
     pub(crate) particles: Vec<Particle>,
-    /// All particles of a solid model, for the three-dimensional view.
+    /// The model as a cloud for the three-dimensional view, if it has one.
     pub(crate) cloud: Option<Cloud>,
     pub(crate) summary: ImpactSummary,
 }
@@ -26,17 +30,9 @@ pub(crate) struct Snapshot {
 impl Snapshot {
     /// The current state of `simulation`.
     pub(crate) fn of(simulation: &Simulation) -> Self {
-        let layout = simulation.layout();
         Self {
             particles: simulation.particles().into_owned(),
-            cloud: simulation.solid_particles().map(|particles| {
-                Cloud::new(
-                    &particles,
-                    layout.symmetry_plane,
-                    layout.half,
-                    layout.armor_body,
-                )
-            }),
+            cloud: rap_app::picture::cloud(simulation, CLOUD_BUDGET),
             summary: simulation.summary(),
         }
     }

@@ -51,7 +51,7 @@ enum Command {
         /// Run on the graphics card, whatever the scenario file says.
         #[arg(long)]
         gpu: bool,
-        /// Write a picture of a three-dimensional model at every snapshot,
+        /// Write a three-dimensional picture of the model at every snapshot,
         /// for assembling into a film.
         #[arg(long)]
         pictures: bool,
@@ -199,10 +199,11 @@ fn announce(
              slab, not a body of revolution, so depths are indicative only."
         )?;
     }
-    if pictures && simulation.solid_particles().is_none() {
+    if pictures && layout.kind == ModelKind::PlaneStrain {
         writeln!(
             output,
-            "Note: pictures are drawn of three-dimensional models only; none will be written."
+            "Note: a model in plane strain has no third dimension to draw; no pictures will \
+             be written."
         )?;
     }
     writeln!(

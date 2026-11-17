@@ -4,8 +4,10 @@
 //! A voxel with an empty neighbour lies on the surface; it becomes one
 //! patch whose normal points away from the occupied voxels around it.
 
+use std::f64::consts::PI;
+
 use glam::{Mat3, Vec3};
-use rap_solver::Particle3;
+use rap_solver::{Particle, Particle3};
 
 use crate::palette::Field;
 
@@ -15,6 +17,9 @@ const VOXEL_SPACINGS: f32 = 1.5;
 /// Largest number of voxels along one axis; coarser voxels are used for a
 /// model that would need more.
 const MAX_VOXELS: f32 = 192.0;
+/// Distance between the copies of a particle swept round an axis, in
+/// particle spacings: close enough that every voxel on the way gets one.
+const ARC_SPACINGS: f64 = 1.2;
 /// Steps along one axis to the voxels that shape the normal of a patch.
 /// Two voxels each way keep the normals of a slanted face from following
 /// its staircase.
@@ -130,6 +135,85 @@ impl Cloud {
             plane,
         }
     }
+
+    /// The far half of an axisymmetric model: every particle of its
+    /// two-dimensional picture swept half-way round the axis at `y = axis`,
+    /// so that a section along the plane `z = 0` shows that picture.
+    /// Particles of `armor_body` are the armor.
+    ///
+    /// At most about `budget` points are made; if the model would need
+    /// more, they are placed further apart and the cloud is that much
+    /// coarser.
+    #[must_use]
+    pub fn revolved(particles: &[Particle], axis: f64, armor_body: usize, budget: usize) -> Self {
+        // A particle of an axisymmetric model stands for a ring. Its volume
+        // is per radian, so its cross-section is the volume over the radius.
+        let radius_of = |particle: &Particle| (particle.position.y - axis).max(0.0);
+        let (mut area, mut counted, mut sweep) = (0.0, 0.0, 0.0);
+        for particle in particles {
+            let radius = radius_of(particle);
+            if radius > 0.0 {
+                area += particle.volume / radius;
+                counted += 1.0;
+                sweep += PI * radius;
+            }
+        }
+        let spacing = if counted > 0.0 {
+            (area / counted).sqrt()
+        } else {
+            f64::MIN_POSITIVE
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "point counts are far below 2^53"
+        )]
+        let step = (ARC_SPACINGS * spacing).max(sweep / budget.max(1) as f64);
+
+        let mut points = Vec::new();
+        for particle in particles {
+            let radius = radius_of(particle);
+            let state = CloudPoint {
+                position: Vec3::ZERO,
+                material: particle.material,
+                armor: particle.body == armor_body,
+                failed: f32::from(u8::from(particle.is_failed())),
+                damage: single(particle.damage),
+                plastic_strain: single(particle.plastic_strain),
+                pressure: single(particle.pressure * 1.0e-9),
+                temperature: single(particle.temperature),
+                speed: single(particle.velocity.length()),
+            };
+            let copies = arc_count(PI * radius / step);
+            for copy in 0..copies {
+                // Evenly over the half-turn behind the plane.
+                let angle = -PI * (f64::from(copy) + 0.5) / f64::from(copies);
+                let (sine, cosine) = angle.sin_cos();
+                points.push(CloudPoint {
+                    position: Vec3::new(
+                        single(particle.position.x),
+                        single(axis + radius * cosine),
+                        single(radius * sine),
+                    ),
+                    ..state
+                });
+            }
+        }
+        Self {
+            points,
+            spacing: single(step / ARC_SPACINGS).max(f32::MIN_POSITIVE),
+            plane: 0.0,
+        }
+    }
+}
+
+/// Number of copies of a particle along an arc that is `steps` steps long.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is a small positive number, rounded up"
+)]
+fn arc_count(steps: f64) -> u32 {
+    steps.ceil().clamp(1.0, f64::from(u32::MAX)) as u32
 }
 
 /// One patch of the surface.

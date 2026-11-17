@@ -50,12 +50,11 @@ cargo run --release -p rap-ui
 Scenarios are opened and saved in the same JSON format the command line
 uses.
 
-A three-dimensional model is shown as shaded solids that can be turned and
-cut along the shot line. The shell example 0.3 ms after impact, coloured by
-material and by speed:
+Models are shown as shaded solids that can be turned and cut along the shot
+line, in the window and in pictures written by `rap run --pictures`. A
+152 mm shell with its bursting charge, stopped head-on in 300 mm of steel:
 
-![Shell and plate, by material](docs/images/view3d-shell-material.png)
-![Shell and plate, by speed](docs/images/view3d-shell-speed.png)
+![Shell stopped in a plate](docs/images/shell-head-on.png)
 
 ### Command line
 
@@ -319,6 +318,7 @@ cargo run -p rap-cli
 - M14 — contact only where bodies touch, a sound measure of depth, hardened
   shell steel
 - M15 — pictures of a run from the command line, for films
+- M16 — three-dimensional pictures of axisymmetric models
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material
