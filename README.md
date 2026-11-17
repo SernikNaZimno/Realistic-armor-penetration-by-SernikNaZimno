@@ -119,12 +119,24 @@ thick 4340 steel head-on at 810 m/s:
 | Depth, contact wherever bodies share a node | — | 97 mm | 118 mm | 132 mm | 147 mm |
 | Depth, contact where bodies touch | 127 mm | 148 mm | 166 mm | 166 mm | 170 mm |
 
-The depth has settled by 12 cells per radius. About 205 mm is commonly
-quoted for this gun at that speed; that figure and the parameters of both
-steels are not from primary sources, so the comparison shows the right
-order, not agreement. The same shell with armor steel instead of shell
-steel flattens against the plate and reaches about two thirds of the
-depth.
+The depth has settled by 12 cells per radius. The same shell with armor
+steel instead of shell steel flattens against the plate and reaches about
+two thirds of the depth.
+
+Plates of finite thickness, at 12 cells per radius, against what the
+[Wikipedia article on the ISU-152](https://en.wikipedia.org/wiki/ISU-152)
+gives for the 48.78 kg armor-piercing shell of the same caliber:
+
+| Gun | Quoted penetration of rolled armor at 90° | Speed assumed at that range | Simulated |
+|---|---|---|---|
+| ML-20S, 600 m/s at the muzzle | 125 mm at 500 m | 575 m/s | 125 mm perforated, with 41 % of the shell leaving at 71 m/s; 150 mm barely, 12 % at 43 m/s |
+| BL-8, 850 m/s at the muzzle | 203 mm at up to 2000 m | 760 m/s | 203 mm barely perforated, 9 % at 52 m/s; 230 mm not |
+
+No parameter was adjusted to obtain this. It is still weaker evidence than
+it looks: the source is secondary, the speeds at range are estimates, the
+steel parameters are not from primary sources, and close to the limit the
+verdict depends on how much of the shell must emerge, and how fast, to
+count as perforation.
 
 Against 245 mm at a compound angle of 30° by 30°
 ([aphe-turret-cheek.json](docs/examples/aphe-turret-cheek.json)), at 8
