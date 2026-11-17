@@ -13,7 +13,8 @@ use rap_solver::{Particle, Symmetry};
 
 use crate::runner::{Runner, Snapshot, Update};
 use crate::view::{Camera, Field, Scene};
-use crate::{editors, materials, view, widgets};
+use crate::view3d::{Camera3, Cloud, Surface};
+use crate::{editors, materials, view, view3d, widgets};
 
 /// Number of progress reports over a run; also the number of animation
 /// frames at most.
@@ -24,6 +25,8 @@ const VIEW_MARGIN_CELLS: f64 = 4.0;
 /// The scenario as assembled for the solver, before any time has passed.
 struct Preview {
     simulation: Simulation,
+    /// All particles of a solid model, for the three-dimensional view.
+    cloud: Option<Cloud>,
     bounds: (DVec2, DVec2),
     particle_size: f64,
 }
@@ -43,6 +46,7 @@ impl Preview {
         let (lower, upper) =
             bounding_box(&simulation.particles()).unwrap_or((DVec2::ZERO, DVec2::ONE));
         Ok(Self {
+            cloud: Snapshot::of(&simulation).cloud,
             simulation,
             bounds: (lower - margin, upper + margin),
             particle_size: cell_size / f64::from(file.settings.particles_per_cell_edge),
@@ -62,6 +66,7 @@ enum RunState {
 struct Run {
     runner: Runner,
     particles: Vec<Particle>,
+    cloud: Option<Cloud>,
     history: Vec<ImpactSummary>,
     state: RunState,
 }
@@ -76,6 +81,15 @@ pub struct App {
     run: Option<Run>,
     field: Field,
     camera: Camera,
+    camera3: Camera3,
+    /// Whether a solid model is shown in three dimensions rather than as
+    /// its slice.
+    solid_view: bool,
+    /// Whether the three-dimensional view is cut along the shot line.
+    section: bool,
+    /// Surface of the particles last shown in three dimensions; `None`
+    /// when they have changed since.
+    surface: Option<Surface>,
     /// Outcome of the last file operation or start of a run, shown in the
     /// toolbar.
     message: Option<String>,
@@ -99,6 +113,10 @@ impl App {
             run: None,
             field: Field::Material,
             camera: Camera::default(),
+            camera3: Camera3::default(),
+            solid_view: true,
+            section: true,
+            surface: None,
             message: None,
         };
         app.rebuild_preview();
@@ -136,6 +154,7 @@ impl App {
         self.run = None;
         self.file = file;
         self.camera = Camera::default();
+        self.camera3 = Camera3::default();
         self.rebuild_preview();
     }
 
@@ -195,6 +214,7 @@ impl App {
         self.preview = self
             .refresh_mesh()
             .and_then(|()| Preview::new(&self.file, self.mesh()));
+        self.surface = None;
     }
 
     /// Starts simulating the scenario. Does nothing if it is invalid or a
@@ -227,6 +247,7 @@ impl App {
         self.run = Some(Run {
             runner,
             particles: preview.simulation.particles().into_owned(),
+            cloud: preview.cloud.clone(),
             history: vec![preview.simulation.summary()],
             state: RunState::Running,
         });
@@ -252,6 +273,7 @@ impl App {
     /// Stops and discards the simulation, returning to the editable scenario.
     pub fn reset(&mut self) {
         self.run = None;
+        self.surface = None;
     }
 
     /// Takes in the progress reported since the last frame.
@@ -259,9 +281,12 @@ impl App {
         let Some(run) = &mut self.run else {
             return;
         };
+        let surface = &mut self.surface;
         let mut accept = |snapshot: Snapshot| {
             run.particles = snapshot.particles;
+            run.cloud = snapshot.cloud;
             run.history.push(snapshot.summary);
+            *surface = None;
         };
         for update in run.runner.poll() {
             match update {
@@ -370,11 +395,32 @@ impl App {
                         ui.selectable_value(&mut self.field, field, field.label());
                     }
                 });
+            if self.cloud().is_some() {
+                ui.separator();
+                ui.checkbox(&mut self.solid_view, "3D");
+                if ui
+                    .add_enabled(
+                        self.solid_view,
+                        egui::Checkbox::new(&mut self.section, "Section"),
+                    )
+                    .changed()
+                {
+                    self.surface = None;
+                }
+            }
             if let Some(message) = &self.message {
                 ui.separator();
                 ui.weak(message);
             }
         });
+    }
+
+    /// All particles of the solid model being shown, if it is one.
+    fn cloud(&self) -> Option<&Cloud> {
+        match &self.run {
+            Some(run) => run.cloud.as_ref(),
+            None => self.preview.as_ref().ok()?.cloud.as_ref(),
+        }
     }
 
     fn editors(&mut self, ui: &mut egui::Ui) {
@@ -513,6 +559,17 @@ impl App {
     }
 
     fn view(&mut self, ui: &mut egui::Ui) {
+        if self.solid_view {
+            if self.surface.is_none() {
+                self.surface = self
+                    .cloud()
+                    .map(|cloud| Surface::extract(cloud, self.section));
+            }
+            if let Some(surface) = &self.surface {
+                view3d::show(ui, surface, self.field, &mut self.camera3);
+                return;
+            }
+        }
         let Ok(preview) = &self.preview else {
             ui.centered_and_justified(|ui| ui.weak("Nothing to show."));
             return;

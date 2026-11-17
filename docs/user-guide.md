@@ -76,11 +76,21 @@ the reason is shown in red above the editors and *Run* is disabled.
 suspend and continue it; *Reset* discards it and returns to editing. The
 editors are locked while a run exists.
 
-In the view, drag to pan, scroll to zoom and double-click to reset.
-*Colour by* selects what the colours show. An axisymmetric model is drawn
-mirrored about its axis. For a three-dimensional model the view shows the
-slice in the symmetry plane; for armor from an STL file, the slice through
-the shot line that is as close to upright in the file as the shot allows.
+A two-dimensional model is drawn as its particles: drag to pan, scroll to
+zoom and double-click to reset. An axisymmetric model is drawn mirrored
+about its axis.
+
+A three-dimensional model is drawn as shaded solids. Drag to turn the
+model, drag with the right button to move it, scroll to zoom and
+double-click to reset. The armor is grey and the projectile coloured by
+material; failed material is darker. With *Section* ticked the model is
+cut along the shot line, which shows the inside of the projectile and of
+the crater; a model of an oblique plate is one half of the whole and is
+always seen that way. Untick *3D* to see the flat slice through the shot
+line instead; for armor from an STL file that slice is as close to upright
+in the file as the shot allows.
+
+*Colour by* selects what the colours show in either view.
 
 *New* loads an example, *Open…* and *Save as…* read and write scenario
 files, the same ones the command line uses.

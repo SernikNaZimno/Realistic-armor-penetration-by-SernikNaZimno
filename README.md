@@ -50,6 +50,13 @@ cargo run --release -p rap-ui
 Scenarios are opened and saved in the same JSON format the command line
 uses.
 
+A three-dimensional model is shown as shaded solids that can be turned and
+cut along the shot line. The shell example 0.3 ms after impact, coloured by
+material and by speed:
+
+![Shell and plate, by material](docs/images/view3d-shell-material.png)
+![Shell and plate, by speed](docs/images/view3d-shell-speed.png)
+
 ### Command line
 
 `preset` writes an example scenario (`apbc` or `apfsds`) to edit; `materials`
@@ -226,6 +233,9 @@ for the design.
   axisymmetric model it is a surface of revolution.
 - The desktop application reassembles the model after every edit, which
   becomes slow at high resolution.
+- The three-dimensional view draws the surface as flat patches of about one
+  and a half particle spacings, painted from back to front; it is as coarse
+  as the model and has no perspective.
 - A run cannot be paused and resumed from a file.
 - The three-dimensional CPU solver has a serial particle-to-grid transfer.
 - The GPU solver needs a Vulkan, DirectX 12 or Metal adapter, has only
@@ -276,6 +286,7 @@ cargo run -p rap-cli
 - M11 — three-dimensional solver and ceramics on the GPU
 
 - M12 — full-caliber shells with a bursting charge (APHE), inert
+- M13 — three-dimensional view: shaded solids, section, orbiting camera
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material

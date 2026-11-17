@@ -5,6 +5,7 @@ mod editors;
 mod materials;
 mod runner;
 mod view;
+mod view3d;
 mod widgets;
 
 use eframe::egui;

@@ -8,6 +8,8 @@ use rap_analysis::ImpactSummary;
 use rap_app::Simulation;
 use rap_solver::Particle;
 
+use crate::view3d::Cloud;
+
 /// Number of progress updates that may wait for the interface. Further
 /// intermediate updates are dropped rather than queued.
 const PENDING_UPDATES: usize = 2;
@@ -16,7 +18,28 @@ const PENDING_UPDATES: usize = 2;
 #[derive(Debug, Clone)]
 pub(crate) struct Snapshot {
     pub(crate) particles: Vec<Particle>,
+    /// All particles of a solid model, for the three-dimensional view.
+    pub(crate) cloud: Option<Cloud>,
     pub(crate) summary: ImpactSummary,
+}
+
+impl Snapshot {
+    /// The current state of `simulation`.
+    pub(crate) fn of(simulation: &Simulation) -> Self {
+        let layout = simulation.layout();
+        Self {
+            particles: simulation.particles().into_owned(),
+            cloud: simulation.solid_particles().map(|particles| {
+                Cloud::new(
+                    &particles,
+                    layout.symmetry_plane,
+                    layout.half,
+                    layout.armor_body,
+                )
+            }),
+            summary: simulation.summary(),
+        }
+    }
 }
 
 /// Message from the worker to the interface.
@@ -148,10 +171,7 @@ fn work(
             notify();
             return;
         }
-        let snapshot = Snapshot {
-            particles: simulation.particles().into_owned(),
-            summary: simulation.summary(),
-        };
+        let snapshot = Snapshot::of(&simulation);
         if slice == slices {
             let _ = updates.send(Update::Finished(snapshot));
         } else if let Err(TrySendError::Disconnected(_)) =

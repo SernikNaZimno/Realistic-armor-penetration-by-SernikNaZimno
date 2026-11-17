@@ -98,6 +98,9 @@ pub struct Layout {
     /// two-dimensional picture shows: the symmetry plane of a half model,
     /// the plane through the shot line of a whole one. In m.
     pub symmetry_plane: f64,
+    /// Whether a solid model is one half of a whole that is symmetric about
+    /// [`Self::symmetry_plane`].
+    pub half: bool,
     /// `x` at which the shot line enters the armor, in m.
     pub armor_face: f64,
     /// `x` at which the shot line leaves the armor, in m.
@@ -532,6 +535,7 @@ impl<'a> Plan<'a> {
             cell_size: self.cell_size,
             shot_line: self.shot_line,
             symmetry_plane,
+            half: self.kind == ModelKind::Solid,
             armor_face: self.armor_face,
             armor_back: self.armor_face + self.path_length,
             end_time: self.end_time,

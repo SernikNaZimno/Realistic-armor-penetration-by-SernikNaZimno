@@ -237,6 +237,7 @@ pub fn assemble_mesh(
         cell_size,
         shot_line: shift.y,
         symmetry_plane: shift.z,
+        half: false,
         armor_face: shift.x,
         armor_back: shift.x + armor.back,
         end_time: settings

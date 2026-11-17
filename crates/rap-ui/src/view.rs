@@ -264,7 +264,13 @@ pub(crate) fn mirrored_bounds(bounds: (DVec2, DVec2), mirror_axis: Option<f64>) 
     }
 }
 
-fn legend(painter: &egui::Painter, rect: Rect, field: Field, range: (f64, f64), text: Color32) {
+pub(crate) fn legend(
+    painter: &egui::Painter,
+    rect: Rect,
+    field: Field,
+    range: (f64, f64),
+    text: Color32,
+) {
     const WIDTH: f32 = 160.0;
     const HEIGHT: f32 = 10.0;
     const STEPS: u8 = 32;
