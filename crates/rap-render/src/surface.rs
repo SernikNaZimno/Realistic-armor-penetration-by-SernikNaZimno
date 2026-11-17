@@ -24,6 +24,10 @@ const ARC_SPACINGS: f64 = 1.2;
 /// Two voxels each way keep the normals of a slanted face from following
 /// its staircase.
 const STEPS: [i8; 5] = [-2, -1, 0, 1, 2];
+/// Steps along one axis to the voxels whose normals are averaged.
+const NEIGHBOURS: [i8; 3] = [-1, 0, 1];
+/// Times the normals are averaged with those of their neighbours.
+const SMOOTHING_PASSES: usize = 2;
 /// The six voxels that share a face with a voxel.
 const FACES: [[i32; 3]; 6] = [
     [1, 0, 0],
@@ -320,6 +324,72 @@ impl Tally {
     }
 }
 
+/// Outward unit normal of every voxel of `tallies` that lies on the
+/// surface; `None` for a voxel inside the material and zero for a lone
+/// voxel. `slots` gives, for each voxel of a grid of `dims`, its index in
+/// `tallies` plus one, or zero if it is empty.
+fn normals_of(tallies: &[Tally], slots: &[u32], dims: [i32; 3]) -> Vec<Option<Vec3>> {
+    let occupied = |cell: [i32; 3]| index::dense(cell, dims).is_some_and(|dense| slots[dense] != 0);
+    let shifted =
+        |cell: [i32; 3], by: [i32; 3]| [cell[0] + by[0], cell[1] + by[1], cell[2] + by[2]];
+    // Raw normal of every voxel on the surface: away from the occupied
+    // voxels around it. Voxels inside the material get none.
+    let on_surface = |tally: &Tally| {
+        FACES
+            .iter()
+            .any(|face| !occupied(shifted(tally.cell, *face)))
+    };
+    let mut normals: Vec<Option<Vec3>> = tallies
+        .iter()
+        .map(|tally| {
+            on_surface(tally).then(|| {
+                let mut inward = Vec3::ZERO;
+                for dz in STEPS {
+                    for dy in STEPS {
+                        for dx in STEPS {
+                            if occupied(shifted(tally.cell, [dx, dy, dz].map(i32::from))) {
+                                inward += Vec3::new(dx.into(), dy.into(), dz.into());
+                            }
+                        }
+                    }
+                }
+                (-inward).normalize_or_zero()
+            })
+        })
+        .collect();
+    // A slanted face is a staircase of voxels whose raw normals take
+    // turns; averaging each with its neighbours on the surface gives
+    // the normal of the face.
+    for _ in 0..SMOOTHING_PASSES {
+        normals = tallies
+            .iter()
+            .zip(&normals)
+            .map(|(tally, normal)| {
+                let own = (*normal)?;
+                let mut sum = Vec3::ZERO;
+                for dz in NEIGHBOURS {
+                    for dy in NEIGHBOURS {
+                        for dx in NEIGHBOURS {
+                            let cell = shifted(tally.cell, [dx, dy, dz].map(i32::from));
+                            let near = index::dense(cell, dims)
+                                .filter(|dense| slots[*dense] != 0)
+                                .and_then(|dense| normals[slots[dense] as usize - 1]);
+                            sum += near.unwrap_or(Vec3::ZERO);
+                        }
+                    }
+                }
+                // A lone voxel has no normal and keeps none.
+                Some(if own == Vec3::ZERO {
+                    own
+                } else {
+                    sum.normalize_or(own)
+                })
+            })
+            .collect();
+    }
+    normals
+}
+
 impl Surface {
     /// Finds the surface of `cloud`. With `section`, only the material
     /// behind the plane through the shot line is kept, so that the cut face
@@ -369,33 +439,15 @@ impl Surface {
             tally.add(point);
         }
 
-        let occupied =
-            |cell: [i32; 3]| index::dense(cell, dims).is_some_and(|dense| slots[dense] != 0);
-        let shifted =
-            |cell: [i32; 3], by: [i32; 3]| [cell[0] + by[0], cell[1] + by[1], cell[2] + by[2]];
+        let normals = normals_of(&tallies, &slots, dims);
         let patches = tallies
             .iter()
-            .filter(|tally| {
-                FACES
-                    .iter()
-                    .any(|face| !occupied(shifted(tally.cell, *face)))
-            })
-            .map(|tally| {
-                // Away from the occupied voxels around.
-                let mut inward = Vec3::ZERO;
-                for dz in STEPS {
-                    for dy in STEPS {
-                        for dx in STEPS {
-                            if occupied(shifted(tally.cell, [dx, dy, dz].map(i32::from))) {
-                                inward += Vec3::new(dx.into(), dy.into(), dz.into());
-                            }
-                        }
-                    }
-                }
-                Patch {
+            .zip(&normals)
+            .filter_map(|(tally, normal)| {
+                Some(Patch {
                     point: tally.mean(),
-                    normal: (-inward).normalize_or_zero(),
-                }
+                    normal: (*normal)?,
+                })
             })
             .collect();
         Self {

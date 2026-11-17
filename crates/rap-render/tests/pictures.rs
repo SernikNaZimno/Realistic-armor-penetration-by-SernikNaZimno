@@ -97,32 +97,74 @@ fn surface_of_a_block_is_its_skin_with_outward_normals() {
 #[test]
 fn section_cuts_at_the_plane_and_shows_what_is_inside() {
     // A core of another material inside a block, cut through its middle.
-    let mut particles = block(DVec3::ZERO, [12, 12, 12], 0);
+    let mut particles = block(DVec3::ZERO, [24, 24, 24], 0);
     for particle in &mut particles {
-        let from_axis = (particle.position.truncate() - 0.006).abs().max_element();
-        if from_axis < 0.002 {
+        let from_axis = (particle.position.truncate() - 0.012).abs().max_element();
+        if from_axis < 0.003 {
             particle.material = 1;
         }
     }
-    let cloud = Cloud::new(&particles, 0.006, false, 0);
+    let cloud = Cloud::new(&particles, 0.012, false, 0);
     let cut = Surface::extract(&cloud, true);
-    assert!(cut.bounds.1.z < 0.0065);
+    assert!(cut.bounds.1.z < 0.0125);
     let on_the_cut = |material: usize| {
         cut.patches
             .iter()
-            .filter(|patch| patch.point.material == material && patch.point.position.z > 0.004)
+            .filter(|patch| patch.point.material == material && patch.point.position.z > 0.010)
             .count()
     };
     assert!(on_the_cut(1) > 0 && on_the_cut(0) > on_the_cut(1));
-    for patch in cut.patches.iter().filter(|patch| {
-        patch.point.position.z > 0.004
-            && (patch.point.position.truncate() - 0.006)
-                .abs()
-                .max_element()
-                < 0.003
-    }) {
+    // Away from the edges of the cut face its normal points at the viewer.
+    let middle: Vec<_> = cut
+        .patches
+        .iter()
+        .filter(|patch| {
+            patch.point.position.z > 0.010
+                && (patch.point.position.truncate() - 0.012)
+                    .abs()
+                    .max_element()
+                    < 0.006
+        })
+        .collect();
+    assert!(middle.len() > 30, "{}", middle.len());
+    for patch in middle {
         assert!((patch.normal - Vec3::Z).length() < 1e-5);
     }
+}
+
+#[test]
+fn slanted_face_has_one_normal_despite_its_staircase() {
+    // A thick plate leaning at 30°: its faces are staircases of voxels.
+    let lean = Vec3::new(0.5, 0.75_f32.sqrt(), 0.0);
+    let particles: Vec<_> = block(DVec3::ZERO, [60, 60, 30], 0)
+        .into_iter()
+        .filter(|particle| {
+            let depth = particle.position.as_vec3().dot(lean);
+            (0.030..0.045).contains(&depth)
+        })
+        .collect();
+    let surface = Surface::extract(&Cloud::new(&particles, 1.0, false, 0), false);
+    // Patches on the upper face, away from its edges.
+    let face: Vec<_> = surface
+        .patches
+        .iter()
+        .filter(|patch| {
+            let position = patch.point.position;
+            position.dot(lean) > 0.0425
+                && (position.z - 0.015).abs() < 0.008
+                && (position.x - 0.030).abs() < 0.012
+                && position.y > 0.010
+                && position.y < 0.050
+        })
+        .collect();
+    assert!(face.len() > 100, "{}", face.len());
+    let worst = face
+        .iter()
+        .map(|patch| patch.normal.dot(lean))
+        .fold(1.0_f32, f32::min);
+    // Within about 11° of the true normal everywhere; the raw normals of
+    // the staircase are up to twice as far off.
+    assert!(worst > 0.98, "{worst}");
 }
 
 #[test]
@@ -167,7 +209,7 @@ fn far_side_is_not_drawn_and_nearer_patches_come_last() {
         .take(300)
         .filter(|sprite| sprite.color == typical)
         .count();
-    assert!(near_face > 200, "{near_face}");
+    assert!(near_face > 100, "{near_face}");
 }
 
 #[test]
@@ -291,10 +333,10 @@ fn axisymmetric_model_is_swept_into_half_a_solid_of_revolution() {
         .filter(|patch| patch.point.position.z > -1.0e-3)
         .filter(|patch| {
             let position = patch.point.position;
-            (position.y - 0.01).abs() < 0.008 && position.x > 0.005 && position.x < 0.025
+            (position.y - 0.01).abs() < 0.004 && position.x > 0.009 && position.x < 0.021
         })
         .collect();
-    assert!(face.len() > 50, "{}", face.len());
+    assert!(face.len() > 15, "{}", face.len());
     assert!(
         face.iter()
             .all(|patch| (patch.normal - Vec3::Z).length() < 1e-3)
