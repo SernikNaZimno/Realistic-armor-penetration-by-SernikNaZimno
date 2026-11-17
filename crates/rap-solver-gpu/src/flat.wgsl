@@ -9,19 +9,9 @@
 // One time step is the sequence of entry points
 //   prepare, clear_bins, count_particles, row_prefix, row_offsets,
 //   fill_bins, grid, particles_update, finish.
+// `prepare`, `finish` and the material models are in `common.wgsl`.
 
-const MAX_BODIES: u32 = 8u;
-const WALL_CELLS: u32 = 2u;
 const MIN_RADIUS_CELLS: f32 = 0.1;
-
-const WALL_FRICTIONLESS: u32 = 0u;
-const WALL_SLIDING: u32 = 1u;
-const WALL_STICKY: u32 = 2u;
-const WALL_OUTFLOW: u32 = 3u;
-
-const ACTIVE: u32 = 0u;
-const DEPARTED: u32 = 1u;
-const LOST: u32 = 2u;
 
 struct Params {
     nodes: vec2<u32>,
@@ -41,33 +31,6 @@ struct Params {
     wall_bottom: u32,
     wall_top: u32,
     padding: u32,
-}
-
-struct Material {
-    density: f32,
-    sound_speed: f32,
-    hugoniot_slope: f32,
-    gruneisen_gamma: f32,
-    shear_modulus: f32,
-    yield_stress: f32,
-    hardening_modulus: f32,
-    hardening_exponent: f32,
-    rate_coefficient: f32,
-    thermal_exponent: f32,
-    strength_rate: f32,
-    strength_temperature: f32,
-    strength_melting: f32,
-    d1: f32,
-    d2: f32,
-    d3: f32,
-    d4: f32,
-    d5: f32,
-    damage_rate: f32,
-    damage_temperature: f32,
-    damage_melting: f32,
-    spall_strength: f32,
-    specific_heat: f32,
-    taylor_quinney: f32,
 }
 
 struct Particle {
@@ -99,20 +62,6 @@ struct NodeState {
     work_velocity: vec2<f32>,
 }
 
-struct Clock {
-    time: f32,
-    compensation: f32,
-    time_step: f32,
-    end_time: f32,
-    // Bits of the largest `sound speed + speed` of any particle.
-    fastest_bits: atomic<u32>,
-    // Unused.
-    reserved: u32,
-    // Particles that left the grid.
-    lost: atomic<u32>,
-    steps: u32,
-}
-
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> materials: array<Material>;
 @group(0) @binding(2) var<storage, read_write> particles: array<Particle>;
@@ -129,16 +78,6 @@ struct Clock {
 @group(0) @binding(8) var<storage, read_write> clock: Clock;
 
 // ---------------------------------------------------------------- helpers
-
-// Quadratic B-spline weights of the three stencil nodes for a particle at
-// `fraction` cells from the first of them.
-fn weights(fraction: f32) -> vec3<f32> {
-    return vec3<f32>(
-        0.5 * (1.5 - fraction) * (1.5 - fraction),
-        0.75 - (fraction - 1.0) * (fraction - 1.0),
-        0.5 * (fraction - 0.5) * (fraction - 0.5),
-    );
-}
 
 // Index of the first stencil node of a particle; valid only if `in_grid`.
 fn stencil_base(position: vec2<f32>) -> vec2<i32> {
@@ -168,67 +107,6 @@ fn bin_first(cell: vec2<u32>) -> u32 {
 
 fn radius_of(position: vec2<f32>) -> f32 {
     return max(position.y - params.axis, MIN_RADIUS_CELLS * params.cell_size);
-}
-
-// ------------------------------------------------------ equation of state
-
-// Energy-independent part of the Mie-Grüneisen pressure and its derivative
-// with respect to the compression mu.
-fn cold_pressure(material: Material, mu: f32) -> vec2<f32> {
-    let bulk_modulus = material.density * material.sound_speed * material.sound_speed;
-    if mu <= 0.0 {
-        return vec2<f32>(bulk_modulus * mu, bulk_modulus);
-    }
-    let a = material.hugoniot_slope - 1.0;
-    let b = 1.0 - material.gruneisen_gamma / 2.0;
-    let denominator = 1.0 - a * mu;
-    let numerator = mu * (1.0 + b * mu);
-    let pressure = bulk_modulus * numerator / (denominator * denominator);
-    let derivative = bulk_modulus * ((1.0 + 2.0 * b * mu) * denominator + 2.0 * a * numerator)
-        / (denominator * denominator * denominator);
-    return vec2<f32>(pressure, derivative);
-}
-
-fn eos_pressure(material: Material, density: f32, specific_energy: f32) -> f32 {
-    let cold = cold_pressure(material, density / material.density - 1.0);
-    return cold.x + material.gruneisen_gamma * material.density * specific_energy;
-}
-
-fn eos_sound_speed(material: Material, density: f32, specific_energy: f32) -> f32 {
-    let cold = cold_pressure(material, density / material.density - 1.0);
-    let energy_derivative = material.gruneisen_gamma * material.density;
-    let pressure = cold.x + energy_derivative * specific_energy;
-    let squared = cold.y / material.density + pressure * energy_derivative / (density * density);
-    return sqrt(max(squared, 0.0));
-}
-
-// ------------------------------------------------------------ Johnson-Cook
-
-fn log_rate(strain_rate: f32, reference: f32) -> f32 {
-    return log(max(strain_rate / reference, 1.0));
-}
-
-fn homologous(temperature: f32, reference: f32, melting: f32) -> f32 {
-    return clamp((temperature - reference) / (melting - reference), 0.0, 1.0);
-}
-
-fn flow_stress(material: Material, strain: f32, strain_rate: f32, temperature: f32) -> f32 {
-    let hardening = material.yield_stress
-        + material.hardening_modulus * pow(max(strain, 0.0), material.hardening_exponent);
-    let rate = 1.0 + material.rate_coefficient * log_rate(strain_rate, material.strength_rate);
-    let softening = 1.0 - pow(
-        homologous(temperature, material.strength_temperature, material.strength_melting),
-        material.thermal_exponent,
-    );
-    return hardening * rate * softening;
-}
-
-fn failure_strain(material: Material, triaxiality: f32, strain_rate: f32, temperature: f32) -> f32 {
-    let stress = material.d1 + material.d2 * exp(material.d3 * triaxiality);
-    let rate = 1.0 + material.d4 * log_rate(strain_rate, material.damage_rate);
-    let heat = 1.0 + material.d5
-        * homologous(temperature, material.damage_temperature, material.damage_melting);
-    return max(stress * rate * heat, 1.0e-6);
 }
 
 fn equivalent_stress(deviator: vec3<f32>) -> f32 {
@@ -292,22 +170,6 @@ fn resolve_contact(velocity: vec2<f32>, centre: vec2<f32>, outward: vec2<f32>) -
 }
 
 // ------------------------------------------------------------ entry points
-
-@compute @workgroup_size(1)
-fn prepare() {
-    let remaining = clock.end_time - clock.time;
-    if remaining <= 0.0 {
-        clock.time_step = 0.0;
-        return;
-    }
-    let fastest = bitcast<f32>(atomicLoad(&clock.fastest_bits));
-    atomicStore(&clock.fastest_bits, 0u);
-    var time_step = remaining;
-    if fastest > 0.0 {
-        time_step = min(remaining, params.cfl * params.cell_size / fastest);
-    }
-    clock.time_step = time_step;
-}
 
 @compute @workgroup_size(64)
 fn clear_bins(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -589,83 +451,40 @@ fn particles_update(@builtin(global_invocation_id) id: vec3<u32>) {
     particle.volume *= exp(time_step * divergence);
     let density = particle.mass / particle.volume;
 
-    if particle.damage >= 1.0 {
-        particle.plastic_strain_rate = 0.0;
+    var point = Point(
+        particle.pressure,
+        particle.specific_energy,
+        particle.plastic_strain,
+        particle.plastic_strain_rate,
+        particle.temperature,
+        particle.damage,
+        particle.sound_speed,
+    );
+    if flows_freely(material, point.damage) {
+        point.plastic_strain_rate = 0.0;
     } else {
+        // Trial elastic deviator in the Jaumann rate, then radial return.
         let shear = material.shear_modulus;
         let trial = vec3<f32>(
             old.x + time_step * (2.0 * shear * (l_xx - mean_rate) + 2.0 * spin * old.z),
             old.y + time_step * (2.0 * shear * (l_yy - mean_rate) - 2.0 * spin * old.z),
             old.z + time_step * (2.0 * shear * rate_xy + spin * (old.y - old.x)),
         );
-        let yield_stress = flow_stress(
-            material,
-            particle.plastic_strain,
-            particle.plastic_strain_rate,
-            particle.temperature,
-        );
-        let equivalent = equivalent_stress(trial);
-        if equivalent > yield_stress {
-            let strain_increment = (equivalent - yield_stress) / (3.0 * shear);
-            let triaxiality = clamp(-particle.pressure / max(yield_stress, 1.0), -10.0, 1.5);
-            let limit = failure_strain(
-                material,
-                triaxiality,
-                particle.plastic_strain_rate,
-                particle.temperature,
-            );
-            particle.damage = min(particle.damage + strain_increment / limit, 1.0);
-            particle.deviator = trial * (yield_stress / equivalent);
-            particle.temperature += material.taylor_quinney * yield_stress * strain_increment
-                / (density * material.specific_heat);
-            particle.plastic_strain += strain_increment;
-            particle.plastic_strain_rate = strain_increment / time_step;
-        } else {
-            particle.deviator = trial;
-            particle.plastic_strain_rate = 0.0;
-        }
+        particle.deviator =
+            trial * yield_point(material, &point, equivalent_stress(trial), density, time_step);
     }
-
-    particle.pressure = eos_pressure(material, density, particle.specific_energy);
-    if particle.pressure < -material.spall_strength {
-        particle.damage = 1.0;
-    }
-    let bulk_speed = eos_sound_speed(material, density, particle.specific_energy);
-    if particle.damage >= 1.0 {
+    if close_point(material, &point, density) {
         particle.deviator = vec3<f32>(0.0);
-        particle.pressure = max(particle.pressure, 0.0);
-        particle.sound_speed = bulk_speed;
-    } else {
-        particle.sound_speed =
-            sqrt(bulk_speed * bulk_speed + 4.0 * material.shear_modulus / (3.0 * density));
     }
-
-    let compression_rate = max(-divergence, 0.0);
-    particle.viscous_pressure = density * cell * compression_rate
-        * (params.linear_viscosity * particle.sound_speed
-            + params.quadratic_viscosity * cell * compression_rate);
+    particle.pressure = point.pressure;
+    particle.plastic_strain = point.plastic_strain;
+    particle.plastic_strain_rate = point.plastic_strain_rate;
+    particle.temperature = point.temperature;
+    particle.damage = point.damage;
+    particle.sound_speed = point.sound_speed;
+    particle.viscous_pressure = viscous_pressure(density, divergence, point.sound_speed);
 
     particles[index] = particle;
     // Positive floats order like their bit patterns.
     atomicMax(&clock.fastest_bits, bitcast<u32>(particle.sound_speed + length(particle.velocity)));
-}
-
-@compute @workgroup_size(1)
-fn finish() {
-    let time_step = clock.time_step;
-    if time_step <= 0.0 {
-        return;
-    }
-    if time_step >= clock.end_time - clock.time {
-        // The step was cut to end exactly at the requested time.
-        clock.time = clock.end_time;
-        clock.compensation = 0.0;
-    } else {
-        // Kahan summation keeps the clock accurate over many small steps.
-        let corrected = time_step - clock.compensation;
-        let advanced = clock.time + corrected;
-        clock.compensation = (advanced - clock.time) - corrected;
-        clock.time = advanced;
-    }
-    clock.steps += 1u;
 }

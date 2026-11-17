@@ -555,7 +555,7 @@ pub(crate) fn settings(ui: &mut egui::Ui, settings: &mut SimulationSettings) -> 
         });
         changed |= row(ui, "Oblique impact", |ui| {
             let label = |model: ObliqueModel| match model {
-                ObliqueModel::Solid => "3D (CPU only, slow)",
+                ObliqueModel::Solid => "3D (slow)",
                 ObliqueModel::PlaneStrain => "plane strain (indicative)",
             };
             let mut picked = false;

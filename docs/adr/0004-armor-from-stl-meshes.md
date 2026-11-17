@@ -46,7 +46,7 @@ The requirement is to read the whole armor solid from an STL file.
   plate given as layers: the residual speeds of the whole and the half
   model differ by 2 % (`crates/rap-app/tests/mesh_armor.rs`).
 - A mesh model costs about twice the half model of a plate of the same
-  size, on a solver that is still CPU-only.
+  size.
 - The solid is one material. Layered or composite solids would need one
   mesh per material.
 - The cut faces of the modelled piece are free surfaces, as the edges of a

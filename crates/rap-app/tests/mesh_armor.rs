@@ -253,19 +253,43 @@ fn problems_are_reported() {
         AppError::WrongArmorKind
     );
 
-    // A simulation needs the mesh, and the CPU solver.
+    // A simulation needs the mesh.
     assert!(matches!(
         Simulation::new(&scenario_ok, &settings, &[]),
         Err(AppError::MeshRequired)
     ));
-    let on_gpu = SimulationSettings {
-        backend: Backend::Gpu,
-        ..settings
+}
+
+#[test]
+fn mesh_armor_runs_on_the_gpu_like_on_the_cpu() {
+    let (scenario, mut settings) = scenario(tilted(45.0));
+    settings.end_time = Some(3.0e-5);
+    let mesh = plate_mesh();
+    let run = |backend: Backend| {
+        let settings = SimulationSettings {
+            backend,
+            ..settings.clone()
+        };
+        let mut simulation = Simulation::with_mesh(&scenario, &settings, &[], Some(&mesh))?;
+        simulation.advance_to(3.0e-5)?;
+        Ok::<_, AppError>(simulation)
     };
-    assert!(matches!(
-        Simulation::with_mesh(&scenario_ok, &on_gpu, &[], Some(&mesh)),
-        Err(AppError::SolidOnGpu)
-    ));
+    let gpu = match run(Backend::Gpu) {
+        Ok(simulation) => simulation,
+        Err(AppError::Solver(rap_solver::SolverError::NoGpu)) => {
+            eprintln!("skipped: no compatible GPU on this machine");
+            return;
+        }
+        Err(error) => panic!("the GPU run failed: {error}"),
+    };
+    let cpu = run(Backend::Cpu).expect("the CPU run succeeds");
+    assert!(gpu.solver_name().starts_with("GPU"));
+    let (gpu, cpu) = (gpu.summary(), cpu.summary());
+    eprintln!("GPU: {gpu:?}\nCPU: {cpu:?}");
+    assert!((gpu.penetration_depth - cpu.penetration_depth).abs() < 1.0e-4);
+    assert!((gpu.residual_speed / cpu.residual_speed - 1.0).abs() < 0.01);
+    assert!((gpu.residual_mass_fraction - cpu.residual_mass_fraction).abs() < 0.01);
+    assert!((gpu.armor_failed_fraction - cpu.armor_failed_fraction).abs() < 0.01);
 }
 
 #[test]

@@ -35,13 +35,6 @@ pub enum AppError {
         /// Number of nodes the grid would need.
         nodes: usize,
     },
-    /// A three-dimensional model was requested on the GPU solver, which
-    /// only handles two-dimensional models.
-    #[error(
-        "the GPU solver cannot run three-dimensional models yet; use the CPU solver, or model \
-         the oblique impact in plane strain"
-    )]
-    SolidOnGpu,
     /// A model was requested for the other kind of armor than the scenario
     /// has: plates where it has a mesh, or a mesh where it has plates.
     #[error("the armor of the scenario is not of the kind this model is built from")]

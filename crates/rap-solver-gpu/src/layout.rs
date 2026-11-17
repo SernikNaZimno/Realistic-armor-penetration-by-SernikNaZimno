@@ -1,4 +1,5 @@
-//! Binary layout of the buffers shared with `mpm.wgsl`.
+//! Binary layout of the buffers shared with the shaders: what both models
+//! use (`common.wgsl`) and the two-dimensional model (`flat.wgsl`).
 //!
 //! Every buffer is a sequence of 32-bit words; floats are stored by their
 //! bit patterns. The word offsets below mirror the WGSL struct layouts.
@@ -10,7 +11,7 @@ use rap_solver::{Deviator, Model, Particle, SolverError, Symmetry, Wall};
 /// Words per `Particle` in the shader.
 pub(crate) const PARTICLE_WORDS: usize = 24;
 /// Words per `Material` in the shader.
-const MATERIAL_WORDS: usize = 24;
+const MATERIAL_WORDS: usize = 44;
 /// Words in the shader's `Clock`.
 pub(crate) const CLOCK_WORDS: usize = 8;
 
@@ -27,19 +28,19 @@ pub(crate) fn single(value: f64) -> f32 {
     value as f32
 }
 
-fn bits(value: f64) -> u32 {
+pub(crate) fn bits(value: f64) -> u32 {
     single(value).to_bits()
 }
 
-fn real(word: u32) -> f64 {
+pub(crate) fn real(word: u32) -> f64 {
     f64::from(f32::from_bits(word))
 }
 
-fn index(value: usize) -> u32 {
+pub(crate) fn index(value: usize) -> u32 {
     u32::try_from(value).expect("indices in a validated model fit in 32 bits")
 }
 
-fn wall_code(wall: Wall) -> u32 {
+pub(crate) fn wall_code(wall: Wall) -> u32 {
     match wall {
         Wall::Frictionless => 0,
         Wall::Sliding => 1,
@@ -82,61 +83,145 @@ pub(crate) fn encode_params(model: &Model) -> Vec<u32> {
 /// # Errors
 /// Returns [`SolverError::Gpu`] for a material model the shader does not
 /// implement.
-pub(crate) fn encode_materials(model: &Model) -> Result<Vec<u32>, SolverError> {
-    let mut words = Vec::with_capacity(model.materials.len() * MATERIAL_WORDS);
-    for material in &model.materials {
+pub(crate) fn encode_materials(materials: &[Material]) -> Result<Vec<u32>, SolverError> {
+    let mut words = Vec::with_capacity(materials.len() * MATERIAL_WORDS);
+    for material in materials {
         words.extend(encode_material(material)?);
     }
     Ok(words)
 }
 
-fn encode_material(material: &Material) -> Result<[u32; MATERIAL_WORDS], SolverError> {
+/// Model selectors of the shader's `Material`.
+const FIRST_MODEL: u32 = 0;
+const SECOND_MODEL: u32 = 1;
+
+/// Parameters of the equation of state: selector, reference density, then
+/// the Mie-Grüneisen and the polynomial parameters.
+fn encode_eos(eos: &Eos) -> Option<(u32, f64, [f64; 6])> {
+    match eos {
+        Eos::MieGruneisen(eos) => Some((
+            FIRST_MODEL,
+            eos.reference_density,
+            [
+                eos.bulk_sound_speed,
+                eos.hugoniot_slope,
+                eos.gruneisen_gamma,
+                0.0,
+                0.0,
+                0.0,
+            ],
+        )),
+        Eos::Polynomial(eos) => Some((
+            SECOND_MODEL,
+            eos.reference_density,
+            [0.0, 0.0, 0.0, eos.k1, eos.k2, eos.k3],
+        )),
+        _ => None,
+    }
+}
+
+/// Parameters of the strength model: selector, then the Johnson-Cook and
+/// the Johnson-Holmquist parameters.
+fn encode_strength(strength: &Strength) -> Option<(u32, [f64; 8], [f64; 10])> {
+    match strength {
+        Strength::JohnsonCook(strength) => Some((
+            FIRST_MODEL,
+            [
+                strength.yield_stress,
+                strength.hardening_modulus,
+                strength.hardening_exponent,
+                strength.rate_coefficient,
+                strength.thermal_exponent,
+                strength.reference.strain_rate,
+                strength.reference.temperature,
+                strength.reference.melting_temperature,
+            ],
+            [0.0; 10],
+        )),
+        Strength::JohnsonHolmquist(strength) => Some((
+            SECOND_MODEL,
+            [0.0; 8],
+            [
+                strength.hel_stress,
+                strength.hel_pressure,
+                strength.tensile_strength,
+                strength.intact_coefficient,
+                strength.intact_exponent,
+                strength.fractured_coefficient,
+                strength.fractured_exponent,
+                strength.fractured_limit,
+                strength.rate_coefficient,
+                strength.reference_strain_rate,
+            ],
+        )),
+        _ => None,
+    }
+}
+
+/// Parameters of the damage model: selector, then the Johnson-Cook and the
+/// Johnson-Holmquist parameters.
+fn encode_damage(damage: &Damage) -> Option<(u32, [f64; 8], [f64; 4])> {
+    match damage {
+        Damage::JohnsonCook(damage) => Some((
+            FIRST_MODEL,
+            [
+                damage.d1,
+                damage.d2,
+                damage.d3,
+                damage.d4,
+                damage.d5,
+                damage.reference.strain_rate,
+                damage.reference.temperature,
+                damage.reference.melting_temperature,
+            ],
+            [0.0; 4],
+        )),
+        Damage::JohnsonHolmquist(damage) => Some((
+            SECOND_MODEL,
+            [0.0; 8],
+            [
+                damage.d1,
+                damage.d2,
+                damage.hel_pressure,
+                damage.tensile_strength,
+            ],
+        )),
+        _ => None,
+    }
+}
+
+fn encode_material(material: &Material) -> Result<Vec<u32>, SolverError> {
     let unsupported = || {
         SolverError::Gpu(format!(
             "material `{}` uses a model the GPU solver does not implement",
             material.id
         ))
     };
-    let Eos::MieGruneisen(eos) = material.eos else {
-        return Err(unsupported());
-    };
-    let Strength::JohnsonCook(strength) = material.strength else {
-        return Err(unsupported());
-    };
-    let Damage::JohnsonCook(damage) = material.damage else {
-        return Err(unsupported());
-    };
-    Ok([
-        eos.reference_density,
-        eos.bulk_sound_speed,
-        eos.hugoniot_slope,
-        eos.gruneisen_gamma,
-        strength.shear_modulus,
-        strength.yield_stress,
-        strength.hardening_modulus,
-        strength.hardening_exponent,
-        strength.rate_coefficient,
-        strength.thermal_exponent,
-        strength.reference.strain_rate,
-        strength.reference.temperature,
-        strength.reference.melting_temperature,
-        damage.d1,
-        damage.d2,
-        damage.d3,
-        damage.d4,
-        damage.d5,
-        damage.reference.strain_rate,
-        damage.reference.temperature,
-        damage.reference.melting_temperature,
-        material.spall_strength,
-        material.specific_heat,
-        material.taylor_quinney,
-    ]
-    .map(bits))
+    let (eos_model, density, eos) = encode_eos(&material.eos).ok_or_else(unsupported)?;
+    let (strength_model, ductile_strength, brittle_strength) =
+        encode_strength(&material.strength).ok_or_else(unsupported)?;
+    let (damage_model, ductile_damage, brittle_damage) =
+        encode_damage(&material.damage).ok_or_else(unsupported)?;
+    let mut words = vec![eos_model, strength_model, damage_model, bits(density)];
+    let reals = eos
+        .into_iter()
+        .chain([material.strength.shear_modulus()])
+        .chain(ductile_strength)
+        .chain(ductile_damage)
+        .chain(brittle_strength)
+        .chain(brittle_damage)
+        .chain([
+            material.spall_strength,
+            material.specific_heat,
+            material.taylor_quinney,
+        ]);
+    words.extend(reals.map(bits));
+    debug_assert_eq!(words.len(), MATERIAL_WORDS);
+    Ok(words)
 }
 
 /// Longitudinal elastic wave speed of a material in its reference state.
-fn reference_wave_speed(material: &Material) -> f64 {
+pub(crate) fn reference_wave_speed(material: &Material) -> f64 {
     let density = material.eos.reference_density();
     let bulk = material.eos.sound_speed(density, 0.0);
     (bulk.powi(2) + 4.0 * material.strength.shear_modulus() / (3.0 * density)).sqrt()
@@ -183,6 +268,16 @@ pub(crate) fn encode_particles(model: &Model) -> Vec<u32> {
     words
 }
 
+/// Largest sum of wave speed and speed of any particle of `model` in its
+/// reference state.
+pub(crate) fn fastest_signal(model: &Model) -> f64 {
+    model
+        .seeds
+        .iter()
+        .map(|seed| reference_wave_speed(&model.materials[seed.material]) + seed.velocity.length())
+        .fold(0.0, f64::max)
+}
+
 /// Decodes one shader `Particle` and its status.
 pub(crate) fn decode_particle(words: &[u32]) -> (Particle, u32) {
     let particle = Particle {
@@ -225,15 +320,9 @@ pub(crate) struct Clock {
 }
 
 impl Clock {
-    /// The clock before the first step of `model`.
-    pub(crate) fn initial(model: &Model) -> Self {
-        let fastest = model
-            .seeds
-            .iter()
-            .map(|seed| {
-                reference_wave_speed(&model.materials[seed.material]) + seed.velocity.length()
-            })
-            .fold(0.0, f64::max);
+    /// The clock before the first step of a model whose fastest particle
+    /// has `fastest` as the sum of its wave speed and its speed.
+    pub(crate) fn starting_with(fastest: f64) -> Self {
         Self {
             time: 0.0,
             end_time: 0.0,
@@ -276,7 +365,7 @@ mod tests {
 
     use super::{
         ACTIVE, CLOCK_WORDS, Clock, MATERIAL_WORDS, PARTICLE_WORDS, decode_particle,
-        encode_materials, encode_params, encode_particles,
+        encode_materials, encode_params, encode_particles, fastest_signal,
     };
 
     fn model() -> Model {
@@ -319,14 +408,14 @@ mod tests {
         // `Params` is 80 bytes in WGSL.
         assert_eq!(encode_params(&model).len() * 4, 80);
         assert_eq!(
-            encode_materials(&model).expect("supported").len(),
+            encode_materials(&model.materials).expect("supported").len(),
             2 * MATERIAL_WORDS
         );
         assert_eq!(encode_particles(&model).len(), 2 * PARTICLE_WORDS);
-        assert_eq!(Clock::initial(&model).encode().len(), CLOCK_WORDS);
-        // `Particle` and `Material` are 96 bytes each.
+        assert_eq!(Clock::starting_with(1.0).encode().len(), CLOCK_WORDS);
+        // `Particle` is 96 bytes and `Material` 176.
         assert_eq!(PARTICLE_WORDS * 4, 96);
-        assert_eq!(MATERIAL_WORDS * 4, 96);
+        assert_eq!(MATERIAL_WORDS * 4, 176);
     }
 
     #[test]
@@ -354,9 +443,34 @@ mod tests {
 
     #[test]
     fn clock_starts_with_the_fastest_signal_and_round_trips() {
-        let clock = Clock::initial(&model());
+        let clock = Clock::starting_with(fastest_signal(&model()));
         // Tungsten wave speed plus the 1500 m/s of the first particle.
         assert!(clock.fastest > 1500.0 + 4000.0);
         assert_eq!(Clock::decode(&clock.encode()), clock);
+    }
+
+    #[test]
+    fn materials_carry_their_model_and_only_its_parameters() {
+        let materials = [library::steel_4340(), library::alumina()];
+        let words = encode_materials(&materials).expect("supported");
+        let real = |word: u32| f64::from(f32::from_bits(word));
+        let (steel, alumina) = words.split_at(MATERIAL_WORDS);
+        // Selectors: equation of state, strength, damage.
+        assert_eq!(&steel[..3], &[0, 0, 0]);
+        assert_eq!(&alumina[..3], &[1, 1, 1]);
+        // Steel: sound speed set, polynomial coefficients and JH-2 unused.
+        assert!((real(steel[4]) - 4569.0).abs() < 1e-3);
+        assert!(steel[7..10].iter().all(|word| *word == 0));
+        assert!(steel[27..41].iter().all(|word| *word == 0));
+        // Alumina: the reverse, with the bulk modulus first.
+        assert!(alumina[4..7].iter().all(|word| *word == 0));
+        assert!(real(alumina[7]) > 1.0e11);
+        assert!(alumina[11..27].iter().all(|word| *word == 0));
+        assert!(real(alumina[27]) > 1.0e9 && real(alumina[28]) > 1.0e9);
+        // Both end with spall strength, specific heat and Taylor-Quinney.
+        for material in [steel, alumina] {
+            assert!(real(material[41]) > 0.0 && real(material[42]) > 100.0);
+            assert!(real(material[43]) > 0.0 && real(material[43]) <= 1.0);
+        }
     }
 }

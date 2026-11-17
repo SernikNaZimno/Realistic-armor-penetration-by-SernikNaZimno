@@ -464,18 +464,49 @@ fn solid_oblique_impact_runs_and_deflects_the_projectile() {
     assert!(solid.iter().all(|particle| particle.position.z > 0.0));
 }
 
-#[test]
-fn solid_models_are_refused_on_the_gpu() {
+/// Runs `scenario` to `end_time` on both solvers and returns their
+/// summaries, GPU first, or `None` with a note on a machine without a GPU.
+fn summaries_on_both(
+    scenario: &Scenario,
+    settings: &SimulationSettings,
+    end_time: f64,
+) -> Option<(rap_analysis::ImpactSummary, rap_analysis::ImpactSummary)> {
     use rap_domain::Backend;
-    let (scenario, mut settings) = small_oblique_scenario(30.0);
-    settings.backend = Backend::Gpu;
-    assert!(matches!(
-        Simulation::new(&scenario, &settings, &[]),
-        Err(AppError::SolidOnGpu)
-    ));
-    // In plane strain the same scenario is a two-dimensional model again.
-    settings.oblique_model = ObliqueModel::PlaneStrain;
-    assert_eq!(ModelKind::of(&scenario, &settings), ModelKind::PlaneStrain);
+    use rap_solver::SolverError;
+    let run = |backend: Backend| {
+        let settings = SimulationSettings {
+            backend,
+            ..settings.clone()
+        };
+        let mut simulation = Simulation::new(scenario, &settings, &[])?;
+        simulation.advance_to(end_time)?;
+        Ok::<_, AppError>(simulation)
+    };
+    let gpu = match run(Backend::Gpu) {
+        Ok(simulation) => simulation,
+        Err(AppError::Solver(SolverError::NoGpu)) => {
+            eprintln!("skipped: no compatible GPU on this machine");
+            return None;
+        }
+        Err(error) => panic!("the GPU run failed: {error}"),
+    };
+    assert!(gpu.solver_name().starts_with("GPU"));
+    let cpu = run(Backend::Cpu).expect("the CPU run succeeds");
+    assert_eq!(cpu.solver_name(), "CPU");
+    Some((gpu.summary(), cpu.summary()))
+}
+
+#[test]
+fn solid_oblique_impact_runs_on_the_gpu_like_on_the_cpu() {
+    let (scenario, settings) = small_oblique_scenario(45.0);
+    let Some((gpu, cpu)) = summaries_on_both(&scenario, &settings, 3.0e-5) else {
+        return;
+    };
+    eprintln!("solid oblique\nGPU: {gpu:?}\nCPU: {cpu:?}");
+    assert!(cpu.perforated && gpu.perforated);
+    assert!((gpu.residual_speed / cpu.residual_speed - 1.0).abs() < 0.01);
+    assert!((gpu.residual_mass_fraction - cpu.residual_mass_fraction).abs() < 0.01);
+    assert!((gpu.armor_failed_fraction - cpu.armor_failed_fraction).abs() < 0.01);
 }
 
 #[test]
@@ -533,27 +564,25 @@ fn ceramic_faced_armor_fractures_under_the_rod() {
 }
 
 #[test]
-fn ceramics_are_refused_on_the_gpu() {
-    use rap_domain::Backend;
+fn ceramic_faced_armor_runs_on_the_gpu_like_on_the_cpu() {
     use rap_domain::material_id::ALUMINA;
-    use rap_solver::SolverError;
     let ceramic = ArmorLayer {
         material: MaterialId::new(ALUMINA),
         thickness: 0.008,
         gap_before: 0.0,
     };
+    let scenario = scenario(vec![ceramic, plate(0.008, 0.0)], 0.0);
     let settings = SimulationSettings {
-        backend: Backend::Gpu,
+        cells_per_radius: 3.0,
+        armor_extent_radii: 6.0,
         ..SimulationSettings::default()
     };
-    match Simulation::new(&scenario(vec![ceramic], 0.0), &settings, &[]) {
-        Err(AppError::Solver(SolverError::Gpu(message))) => {
-            assert!(message.contains("alumina-99.5"), "{message}");
-        }
-        Err(AppError::Solver(SolverError::NoGpu)) => {
-            eprintln!("skipped: no compatible GPU on this machine");
-        }
-        Ok(_) => panic!("the GPU solver does not implement the ceramic model"),
-        Err(error) => panic!("unexpected error: {error}"),
-    }
+    let Some((gpu, cpu)) = summaries_on_both(&scenario, &settings, 2.0e-5) else {
+        return;
+    };
+    eprintln!("ceramic-faced\nGPU: {gpu:?}\nCPU: {cpu:?}");
+    assert!(cpu.penetration_depth > 0.008);
+    assert!((gpu.penetration_depth / cpu.penetration_depth - 1.0).abs() < 0.02);
+    assert!((gpu.armor_failed_fraction - cpu.armor_failed_fraction).abs() < 0.01);
+    assert!((gpu.projectile_failed_fraction - cpu.projectile_failed_fraction).abs() < 0.02);
 }

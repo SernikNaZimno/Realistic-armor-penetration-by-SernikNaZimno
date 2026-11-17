@@ -243,16 +243,18 @@ before trusting either.
 **Kind of model.** A perpendicular impact is always axisymmetric, which is
 exact and cheap. An oblique impact is three-dimensional by default, which
 is faithful and expensive: the example in this guide, at 3 cells per
-radius, has 51 000 particles and takes about a minute, and a long rod at
+radius, has 51 000 particles and takes 46 s, and a long rod at
 useful resolution needs millions. `"plane_strain"` is a fast
 approximation in which the projectile is a slab. In the one case compared,
-the example above, it let the rod through faster (1269 m/s against
-1168 m/s); it is only good for a qualitative look.
+the example above, it let the rod through faster (1209 m/s against
+1116 m/s); it is only good for a qualitative look.
 
-**Solver.** The GPU solver is somewhat faster on large two-dimensional
-models and gives the same results to five or six digits. It does not run
-three-dimensional models or ceramics, and there is no fallback: asking
-for it where it cannot run is an error.
+**Solver.** The GPU solver runs every kind of model and material and gives
+the same results as the CPU solver to four or more digits. How much faster
+it is depends on the graphics adapter and on the size of the model; see
+the timings in the [README](../README.md#gpu-solver). There is no fallback:
+asking for it on a machine without a suitable adapter, or for a model too
+large for the adapter, is an error.
 
 **Armor width.** `armor_extent_radii` should be large enough that the
 edge of the plate does not matter. Ten radii is adequate for thin plates;
@@ -308,7 +310,6 @@ Treat the output as a physically grounded estimate, not a measurement.
 | `the shot line misses the armor mesh` | check `aim_point`, `direction` and `metres_per_unit` against the coordinates of the file |
 | `the armor mesh is smaller than one particle` | `metres_per_unit` is probably wrong: a file in millimetres read as metres is a thousand times too large, the reverse a thousand times too small |
 | `no compatible GPU was found` | use the CPU solver; the GPU solver needs a Vulkan, DirectX 12 or Metal adapter |
-| `the GPU solver cannot run three-dimensional models yet` | use the CPU solver, or `"oblique_model": "plane_strain"` |
-| `material … uses a model the GPU solver does not implement` | the scenario contains a ceramic; use the CPU solver |
+| `the model needs a …-byte buffer, more than this GPU allows` or `more particles or nodes than this GPU can dispatch` | the model is too large for the graphics adapter; lower the resolution or use the CPU solver |
 | `scenario format version … is not supported` | the file was written by a different version of the program |
 | `unknown field …` | a field name is misspelt or does not belong where it is |

@@ -1,6 +1,6 @@
 # ADR 0002: GPU solver
 
-Status: accepted (2026-11-16)
+Status: accepted (2026-11-16); extended by [ADR 0005](0005-three-dimensional-models-and-ceramics-on-the-gpu.md), which splits the shader and adds three-dimensional models and ceramics
 
 ## Context
 

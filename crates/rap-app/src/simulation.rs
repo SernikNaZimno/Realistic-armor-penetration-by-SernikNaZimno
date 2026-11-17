@@ -9,7 +9,7 @@ use rap_geometry::TriangleMesh;
 use rap_materials::Material;
 use rap_solver::{Deviator, Particle, Particle3, Solver, Solver3};
 use rap_solver_cpu::{MpmSolver, MpmSolver3};
-use rap_solver_gpu::GpuSolver;
+use rap_solver_gpu::{GpuSolver, GpuSolver3};
 
 use crate::AppError;
 use crate::assemble::mesh::assemble_mesh;
@@ -97,20 +97,20 @@ impl Simulation {
     ) -> Result<Self, AppError> {
         let (engine, solver_name, layout) = match ModelKind::of(scenario, settings) {
             ModelKind::Solid => {
-                if settings.backend == Backend::Gpu {
-                    return Err(AppError::SolidOnGpu);
-                }
                 let assembly = match (&scenario.armor, mesh) {
                     (Target::Plates(_), _) => assemble_solid(scenario, settings, custom_materials)?,
                     (_, Some(mesh)) => assemble_mesh(scenario, settings, custom_materials, mesh)?,
                     (_, None) => return Err(AppError::MeshRequired),
                 };
-                let solver = MpmSolver3::new(assembly.model)?;
-                (
-                    Engine::Solid(Box::new(solver)),
-                    "CPU".to_owned(),
-                    assembly.layout,
-                )
+                let (solver, name): (Box<dyn Solver3 + Send>, String) = match settings.backend {
+                    Backend::Cpu => (Box::new(MpmSolver3::new(assembly.model)?), "CPU".to_owned()),
+                    Backend::Gpu => {
+                        let solver = GpuSolver3::new(&assembly.model)?;
+                        let name = format!("GPU ({})", solver.adapter_name());
+                        (Box::new(solver), name)
+                    }
+                };
+                (Engine::Solid(solver), name, assembly.layout)
             }
             ModelKind::Axisymmetric | ModelKind::PlaneStrain => {
                 let assembly = assemble(scenario, settings, custom_materials)?;
