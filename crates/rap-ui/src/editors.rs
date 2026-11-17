@@ -2,9 +2,9 @@
 //! Each returns whether the user changed anything.
 
 use eframe::egui;
-use rap_domain::material_id::STEEL_4340;
+use rap_domain::material_id::{STEEL_4340, TNT_INERT};
 use rap_domain::{
-    ApbcProjectile, ApfsdsProjectile, Armor, ArmorLayer, Backend, BallisticCap, MaterialId,
+    ApbcProjectile, ApfsdsProjectile, Armor, ArmorLayer, Backend, BallisticCap, Filler, MaterialId,
     NoseShape, ObliqueModel, ProfilePoint, Projectile, Scenario, SimulationSettings, SolidArmor,
     Target,
 };
@@ -21,7 +21,7 @@ pub(crate) enum Kind {
 impl Kind {
     fn label(self) -> &'static str {
         match self {
-            Self::Apbc => "APBC — capped full-caliber shot",
+            Self::Apbc => "AP / APBC / APHE — full-caliber shot",
             Self::Apfsds => "APFSDS — long rod",
         }
     }
@@ -46,6 +46,7 @@ pub(crate) fn converted(projectile: &Projectile, kind: Kind) -> Projectile {
             nose: projectile.nose(),
             cap: projectile.cap().cloned(),
             material: projectile.material().clone(),
+            filler: projectile.filler().cloned(),
         }),
         Kind::Apfsds => Projectile::Apfsds(ApfsdsProjectile {
             rod_diameter: projectile.diameter(),
@@ -145,6 +146,43 @@ fn cap(ui: &mut egui::Ui, shot: &mut ApbcProjectile, materials: &[MaterialId]) -
     changed
 }
 
+fn filler(ui: &mut egui::Ui, shot: &mut ApbcProjectile, materials: &[MaterialId]) -> bool {
+    let mut changed = false;
+    let mut fitted = shot.filler.is_some();
+    changed |= row(ui, "Bursting charge", |ui| {
+        ui.checkbox(&mut fitted, "fitted (inert)").changed()
+    });
+    if fitted && shot.filler.is_none() {
+        shot.filler = Some(Filler {
+            diameter: 0.33 * shot.caliber,
+            length: 0.4 * shot.body_length,
+            base_plug: 0.1 * shot.body_length,
+            material: materials
+                .iter()
+                .find(|id| id.as_str() == TNT_INERT)
+                .cloned()
+                .unwrap_or_else(|| shot.material.clone()),
+        });
+    } else if !fitted {
+        shot.filler = None;
+    }
+    if let Some(filler) = &mut shot.filler {
+        changed |= row(ui, "Cavity diameter", |ui| {
+            millimetres(ui, &mut filler.diameter, 1.0..=500.0)
+        });
+        changed |= row(ui, "Cavity length", |ui| {
+            millimetres(ui, &mut filler.length, 1.0..=3000.0)
+        });
+        changed |= row(ui, "Base plug", |ui| {
+            millimetres(ui, &mut filler.base_plug, 0.0..=3000.0)
+        });
+        changed |= row(ui, "Charge material", |ui| {
+            material_picker(ui, "filler material", &mut filler.material, materials)
+        });
+    }
+    changed
+}
+
 /// Editor of the projectile and its impact speed.
 pub(crate) fn projectile(
     ui: &mut egui::Ui,
@@ -186,6 +224,7 @@ pub(crate) fn projectile(
                     material_picker(ui, "shot material", &mut shot.material, materials)
                 });
                 changed |= cap(ui, shot, materials);
+                changed |= filler(ui, shot, materials);
             }
             Projectile::Apfsds(rod) => {
                 changed |= row(ui, "Rod diameter", |ui| {

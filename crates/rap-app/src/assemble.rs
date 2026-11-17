@@ -12,7 +12,8 @@
 //! where the shot line meets the face.
 //!
 //! All armor layers form one body, so adjacent layers are perfectly bonded.
-//! A ballistic cap is a body of its own.
+//! A ballistic cap is a body of its own; a bursting charge is part of the
+//! body of its shell.
 //!
 //! Armor given by a mesh is assembled in [`mesh`].
 
@@ -162,6 +163,7 @@ impl MaterialTable {
 enum Part {
     Body,
     Cap,
+    Filler,
 }
 
 /// Profile of a projectile as a body of revolution, measured from its
@@ -201,7 +203,14 @@ impl<'a> Profile<'a> {
         if (0.0..=solid_length).contains(&behind_nose_tip)
             && radial <= nose::radius(self.projectile.nose(), radius, behind_nose_tip)
         {
-            return Some(Part::Body);
+            // The bursting charge fills a cylinder bored in from the base.
+            let ahead_of_base = solid_length - behind_nose_tip;
+            let in_cavity = self.projectile.filler().is_some_and(|filler| {
+                radial <= filler.diameter / 2.0
+                    && (filler.base_plug..=filler.base_plug + filler.length)
+                        .contains(&ahead_of_base)
+            });
+            return Some(if in_cavity { Part::Filler } else { Part::Body });
         }
         let cap = self.projectile.cap()?;
         // The cap starts `cap.length` ahead of the shoulder of the nose.
@@ -219,6 +228,7 @@ struct Parts<'a> {
     profile: Profile<'a>,
     body_material: usize,
     cap_material: Option<usize>,
+    filler_material: Option<usize>,
 }
 
 impl<'a> Parts<'a> {
@@ -233,6 +243,10 @@ impl<'a> Parts<'a> {
             cap_material: projectile
                 .cap()
                 .map(|cap: &BallisticCap| table.index_of(&cap.material, custom))
+                .transpose()?,
+            filler_material: projectile
+                .filler()
+                .map(|filler| table.index_of(&filler.material, custom))
                 .transpose()?,
         })
     }
@@ -254,6 +268,11 @@ impl<'a> Parts<'a> {
             self.cap_body(),
         ) {
             (Part::Cap, Some(material), Some(body)) => Some((material, body)),
+            // The charge is bonded to the shell: same body, other material.
+            (Part::Filler, ..) => Some((
+                self.filler_material.unwrap_or(self.body_material),
+                PROJECTILE_BODY,
+            )),
             _ => Some((self.body_material, PROJECTILE_BODY)),
         }
     }

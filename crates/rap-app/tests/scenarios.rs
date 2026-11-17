@@ -586,3 +586,69 @@ fn ceramic_faced_armor_runs_on_the_gpu_like_on_the_cpu() {
     assert!((gpu.armor_failed_fraction - cpu.armor_failed_fraction).abs() < 0.01);
     assert!((gpu.projectile_failed_fraction - cpu.projectile_failed_fraction).abs() < 0.02);
 }
+
+#[test]
+fn shell_with_a_bursting_charge_has_its_mass_and_a_bonded_filler() {
+    use rap_domain::material_id::TNT_INERT;
+    let mut file = presets::aphe_against_cast_armor();
+    file.settings.cells_per_radius = 8.0;
+    file.settings.armor_extent_radii = 2.0;
+    // Perpendicular, so that the model is axisymmetric and quick to build.
+    plates(&mut file.scenario).obliquity = 0.0;
+    let assembly = assemble(&file.scenario, &file.settings, &[]).expect("the preset is valid");
+    let (model, layout) = (&assembly.model, &assembly.layout);
+    assert_eq!(model.validate(), Ok(()));
+    let names: Vec<_> = model
+        .materials
+        .iter()
+        .map(|material| material.id.as_str())
+        .collect();
+    assert_eq!(names, [STEEL_4340, TNT_INERT]);
+
+    // Volumes are per radian.
+    let mass_of = |material: usize| -> f64 {
+        model
+            .seeds
+            .iter()
+            .filter(|seed| seed.body == layout.projectile_body && seed.material == material)
+            .map(|seed| seed.volume * model.materials[material].eos.reference_density())
+            .sum::<f64>()
+            * std::f64::consts::TAU
+    };
+    let (steel, charge) = (mass_of(0), mass_of(1));
+    eprintln!("shell: {steel:.2} kg of steel, {charge:.3} kg of charge");
+    // The BR-540 weighs 48.8 kg; the charge is a cylinder 50 mm by 120 mm.
+    assert!(((steel + charge) / 48.8 - 1.0).abs() < 0.03);
+    let expected_charge = std::f64::consts::PI * 0.025_f64.powi(2) * 0.12 * 1630.0;
+    // At this resolution the cavity is five particles across.
+    assert!((charge / expected_charge - 1.0).abs() < 0.15);
+
+    // The charge sits on the axis, behind the nose and ahead of the plug.
+    let base = model
+        .seeds
+        .iter()
+        .filter(|seed| seed.body == layout.projectile_body)
+        .map(|seed| seed.position.x)
+        .fold(f64::MAX, f64::min);
+    for seed in model.seeds.iter().filter(|seed| seed.material == 1) {
+        assert_eq!(seed.body, layout.projectile_body);
+        assert!(seed.position.y - layout.shot_line < 0.025);
+        let ahead = seed.position.x - base;
+        assert!(ahead > 0.029 && ahead < 0.151, "{ahead}");
+    }
+}
+
+#[test]
+fn shell_preset_is_a_solid_model_at_its_compound_angle() {
+    let file = presets::aphe_against_cast_armor();
+    assert_eq!(
+        ModelKind::of(&file.scenario, &file.settings),
+        ModelKind::Solid
+    );
+    let assembly =
+        assemble_solid(&file.scenario, &file.settings, &[]).expect("the preset is valid");
+    assert_eq!(assembly.model.validate(), Ok(()));
+    // 245 mm at 30° by 30° is about 325 mm along the line of sight.
+    let path = assembly.layout.armor_back - assembly.layout.armor_face;
+    assert!((path - 0.3267).abs() < 1e-3, "{path}");
+}

@@ -292,6 +292,11 @@ impl App {
                 self.set_file(presets::apfsds_against_steel());
                 ui.close_menu();
             }
+            if ui.button("APHE against a turret cheek").clicked() {
+                self.path = None;
+                self.set_file(presets::aphe_against_cast_armor());
+                ui.close_menu();
+            }
             if ui.button("APBC against steel").clicked() {
                 self.path = None;
                 self.set_file(presets::apbc_against_steel());
@@ -582,9 +587,14 @@ mod tests {
     #[test]
     fn both_presets_draw_without_a_problem() {
         let ctx = egui::Context::default();
+        let mut shell = presets::aphe_against_cast_armor();
+        // The preview of a solid model is built in full; keep it small.
+        shell.settings.cells_per_radius = 2.0;
+        shell.settings.armor_extent_radii = 3.0;
         for file in [
             presets::apfsds_against_steel(),
             presets::apbc_against_steel(),
+            shell,
         ] {
             let mut app = App::new(file);
             assert_eq!(app.problem(), None);

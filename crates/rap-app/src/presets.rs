@@ -37,3 +37,24 @@ pub fn apfsds_against_steel() -> ScenarioFile {
         impact_speed: 1600.0,
     })
 }
+
+/// Obliquity of the turret cheek in [`aphe_against_cast_armor`]: a face
+/// leaning back 30° and turned 30° away from the shot, in radians.
+const COMPOUND_OBLIQUITY: f64 = 0.722_734_247_813_415_6;
+
+/// A 152 mm shell with a bursting charge striking 245 mm of steel at 810 m/s
+/// and a compound angle of 30° by 30°: the cheek of a heavy tank's cast
+/// turret, about 325 mm along the line of sight.
+#[must_use]
+pub fn aphe_against_cast_armor() -> ScenarioFile {
+    let mut armor = steel_plate(0.245);
+    armor.obliquity = COMPOUND_OBLIQUITY;
+    let mut file = ScenarioFile::new(Scenario {
+        projectile: Projectile::Apbc(ApbcProjectile::aphe_152mm()),
+        armor: armor.into(),
+        impact_speed: 810.0,
+    });
+    // A thick plate needs less width, in shell radii, than the default.
+    file.settings.armor_extent_radii = 5.0;
+    file
+}

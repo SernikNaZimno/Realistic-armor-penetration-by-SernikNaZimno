@@ -42,8 +42,9 @@ the middle and the results on the right. It opens with a long-rod example.
 
 ### Editing a scenario
 
-- **Projectile.** Choose APBC (a full-caliber shot with an optional
-  ballistic cap) or APFSDS (a long rod). Set the diameter, the length of
+- **Projectile.** Choose a full-caliber shot (with an optional ballistic
+  cap and an optional bursting charge, which makes it an APHE shell) or
+  APFSDS (a long rod). Set the diameter, the length of
   the cylindrical part, the nose shape and the material. The nose length
   is added to the body length. Switching the type keeps the dimensions.
 - **Armor.** Choose between plates and a solid from an STL file. For
@@ -90,7 +91,7 @@ files, the same ones the command line uses.
 cargo run --release -p rap-cli -- preset apfsds -o shot.json
 ```
 
-writes an example scenario (`apbc` or `apfsds`) to edit.
+writes an example scenario (`apbc`, `apfsds` or `aphe`) to edit.
 
 ```bash
 cargo run --release -p rap-cli -- run shot.json
@@ -124,6 +125,8 @@ complete examples are in [examples](examples):
   capped shot of a custom steel against a plate with a shaped face;
 - [oblique-plate.json](examples/oblique-plate.json): a rod against a plate
   at 60°, in three dimensions;
+- [aphe-turret-cheek.json](examples/aphe-turret-cheek.json): a 152 mm
+  shell with a bursting charge against 245 mm of steel at a compound angle;
 - [cast-dome.json](examples/cast-dome.json): a rod against the wall of a
   hollow dome read from [cast-dome.stl](examples/cast-dome.stl).
 
@@ -159,6 +162,10 @@ ignored.
 | `nose` | shape of the penetrating nose under the cap |
 | `cap` | `null`, or `length` (ahead of the shoulder of the nose, at least half the caliber), `wall_thickness` and `material` of the ballistic cap |
 | `material` | material identifier |
+| `filler` | optional; the bursting charge of an APHE shell: `diameter` and `length` of a cylindrical cavity on the axis, `base_plug`, the thickness of the body behind it, and `material` |
+
+The charge is an inert solid bonded to the shell. It makes the shell
+lighter and weaker, as the real cavity does, but it does not detonate.
 
 `nose` is one of `{ "shape": "flat" }`, `{ "shape": "hemisphere" }`,
 `{ "shape": "cone", "half_angle_deg": … }` and
@@ -296,6 +303,7 @@ Treat the output as a physically grounded estimate, not a measurement.
 - The face shape of plates is the same on both sides of the shot line.
 - Armor from an STL file is one material throughout.
 - Contact acts about one grid cell before bodies touch.
+- A bursting charge is inert: it does not detonate, and there is no fuze.
 - Explosive reactive armor, sabots and the flight of the projectile are
   not modelled.
 

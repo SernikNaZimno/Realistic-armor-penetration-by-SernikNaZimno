@@ -8,7 +8,7 @@
 //! must be checked against a primary source before any quantitative use.
 
 use rap_domain::MaterialId;
-use rap_domain::material_id::{ALUMINA, STEEL_4340, TUNGSTEN_HEAVY_ALLOY};
+use rap_domain::material_id::{ALUMINA, STEEL_4340, TNT_INERT, TUNGSTEN_HEAVY_ALLOY};
 
 use crate::eos::{Eos, MieGruneisen, PolynomialEos};
 use crate::johnson_cook::{JohnsonCookDamage, JohnsonCookStrength, RateTemperatureReference};
@@ -140,10 +140,55 @@ pub fn alumina() -> Material {
     }
 }
 
+/// Cast TNT as an inert solid: a stand-in for the bursting charge of a
+/// shell. It has the density and roughly the stiffness of the explosive and
+/// almost no strength; it does not react.
+///
+/// The Hugoniot is a round-number fit for unreacted TNT and the strength
+/// values are estimates; neither comes from a primary source.
+#[must_use]
+pub fn tnt_inert() -> Material {
+    let reference = RateTemperatureReference {
+        strain_rate: 1.0,
+        temperature: ROOM_TEMPERATURE,
+        melting_temperature: 354.0,
+    };
+    Material {
+        id: MaterialId::new(TNT_INERT),
+        name: "TNT, inert".to_owned(),
+        eos: Eos::MieGruneisen(MieGruneisen {
+            reference_density: 1630.0,
+            bulk_sound_speed: 2400.0,
+            hugoniot_slope: 2.0,
+            gruneisen_gamma: 1.0,
+        }),
+        strength: Strength::JohnsonCook(JohnsonCookStrength {
+            shear_modulus: 3.0e9,
+            yield_stress: 40.0e6,
+            hardening_modulus: 0.0,
+            hardening_exponent: 1.0,
+            rate_coefficient: 0.0,
+            thermal_exponent: 1.0,
+            reference,
+        }),
+        damage: Damage::JohnsonCook(JohnsonCookDamage {
+            d1: 0.05,
+            d2: 0.0,
+            d3: 0.0,
+            d4: 0.0,
+            d5: 0.0,
+            reference,
+        }),
+        spall_strength: 20.0e6,
+        specific_heat: 1130.0,
+        taylor_quinney: TAYLOR_QUINNEY,
+    }
+}
+
 /// All built-in materials.
 #[must_use]
 pub fn builtin() -> Vec<Material> {
-    vec![steel_4340(), tungsten_heavy_alloy(), alumina()]
+    vec![steel_4340(), tungsten_heavy_alloy(), alumina(), tnt_inert()]
 }
 
 #[cfg(test)]

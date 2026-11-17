@@ -1,0 +1,43 @@
+{
+  "format_version": 1,
+  "scenario": {
+    "projectile": {
+      "type": "apbc",
+      "caliber": 0.152,
+      "body_length": 0.26,
+      "nose": {
+        "shape": "ogive",
+        "caliber_radius_head": 1.5
+      },
+      "cap": null,
+      "material": "steel-4340",
+      "filler": {
+        "diameter": 0.05,
+        "length": 0.12,
+        "base_plug": 0.03,
+        "material": "tnt-inert"
+      }
+    },
+    "armor": {
+      "layers": [
+        {
+          "material": "steel-4340",
+          "thickness": 0.245,
+          "gap_before": 0.0
+        }
+      ],
+      "obliquity_deg": 41.409622109270856
+    },
+    "impact_speed": 810.0
+  },
+  "settings": {
+    "cells_per_radius": 4.0,
+    "particles_per_cell_edge": 2,
+    "armor_extent_radii": 5.0,
+    "friction": 0.0,
+    "end_time": null,
+    "snapshots": 20,
+    "backend": "cpu",
+    "oblique_model": "solid"
+  }
+}

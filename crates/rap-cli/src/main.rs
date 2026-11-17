@@ -56,6 +56,9 @@ enum PresetKind {
     Apbc,
     /// Long-rod penetrator against thick steel.
     Apfsds,
+    /// Full-caliber shell with a bursting charge against thick steel at a
+    /// compound angle.
+    Aphe,
 }
 
 fn main() -> Result<()> {
@@ -91,6 +94,7 @@ fn preset(kind: PresetKind, path: Option<&Path>, output: &mut impl Write) -> Res
     let file = match kind {
         PresetKind::Apbc => presets::apbc_against_steel(),
         PresetKind::Apfsds => presets::apfsds_against_steel(),
+        PresetKind::Aphe => presets::aphe_against_cast_armor(),
     };
     match path {
         Some(path) => {
@@ -297,7 +301,7 @@ mod tests {
 
     #[test]
     fn presets_are_valid_scenario_files() {
-        for kind in [PresetKind::Apbc, PresetKind::Apfsds] {
+        for kind in [PresetKind::Apbc, PresetKind::Apfsds, PresetKind::Aphe] {
             let text = report(Command::Preset {
                 projectile: kind,
                 output: None,

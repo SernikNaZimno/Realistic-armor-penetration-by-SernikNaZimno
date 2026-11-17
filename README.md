@@ -6,7 +6,8 @@ Johnson–Cook strength and damage with a Mie–Grüneisen equation of state;
 ceramics follow the Johnson–Holmquist JH-2 model with a polynomial equation
 of state.
 
-Built-in materials: 4340 steel, tungsten heavy alloy and 99.5 % alumina.
+Built-in materials: 4340 steel, tungsten heavy alloy, 99.5 % alumina and
+inert TNT for the bursting charge of a shell.
 
 Status: **M11 — everything on the GPU.** The armor can be an array of
 plates or a solid of any shape read from an STL file, and every kind of
@@ -217,6 +218,7 @@ for the design.
 - A material point fails completely the moment its tension passes the spall
   strength, so a rod that perforates a plate is reported as largely failed
   debris, and the mass counted behind the armor includes that debris.
+- The bursting charge of a shell is inert: it does not detonate.
 - All armor layers are bonded to each other.
 - Armor from an STL file is one material, and the piece of it that is
   modelled is not confined by the armor around it.
@@ -273,7 +275,9 @@ cargo run -p rap-cli
 - M10 — user documentation
 - M11 — three-dimensional solver and ceramics on the GPU
 
-Every milestone of the plan is done. What would add most from here: a
+- M12 — full-caliber shells with a bursting charge (APHE), inert
+
+Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material
 parameters checked against primary sources, and meshes with more than one
 material.

@@ -4,7 +4,7 @@ use std::f64::consts::FRAC_PI_2;
 
 use serde::{Deserialize, Serialize};
 
-use crate::material_id::{MaterialId, STEEL_4340, TUNGSTEN_HEAVY_ALLOY};
+use crate::material_id::{MaterialId, STEEL_4340, TNT_INERT, TUNGSTEN_HEAVY_ALLOY};
 use crate::validation::{self, InvalidParameter};
 
 /// Shape of the front of a body of revolution.
@@ -73,8 +73,28 @@ pub struct BallisticCap {
     pub material: MaterialId,
 }
 
-/// Armor-piercing ballistic-capped shot: a full-caliber solid body with an
-/// optional ballistic cap.
+/// Bursting charge in a cavity bored into the base of a full-caliber shot.
+///
+/// The cavity is a cylinder on the axis, closed at the rear by a base plug
+/// of the body material. The charge is modelled as an inert solid bonded
+/// to the shell: it weakens the shell and changes its mass, but it does
+/// not detonate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Filler {
+    /// Diameter of the cavity, in metres; smaller than the caliber.
+    pub diameter: f64,
+    /// Length of the cavity along the axis, in metres.
+    pub length: f64,
+    /// Thickness of the base plug behind the cavity, in metres. The cavity
+    /// and the plug together must fit in the cylindrical body.
+    pub base_plug: f64,
+    /// Material of the charge.
+    pub material: MaterialId,
+}
+
+/// Armor-piercing full-caliber shot: a body with an optional ballistic cap
+/// and an optional bursting charge (APHE).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApbcProjectile {
@@ -88,6 +108,9 @@ pub struct ApbcProjectile {
     pub cap: Option<BallisticCap>,
     /// Material of the body.
     pub material: MaterialId,
+    /// Bursting charge, if the shot has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filler: Option<Filler>,
 }
 
 impl ApbcProjectile {
@@ -106,6 +129,29 @@ impl ApbcProjectile {
                 material: MaterialId::new(STEEL_4340),
             }),
             material: MaterialId::new(STEEL_4340),
+            filler: None,
+        }
+    }
+
+    /// A 152 mm sharp-nosed steel shell of about 48.8 kg with a small
+    /// bursting charge, after the Soviet BR-540. Only the caliber and the
+    /// mass follow the original; the proportions are estimated.
+    #[must_use]
+    pub fn aphe_152mm() -> Self {
+        Self {
+            caliber: 0.152,
+            body_length: 0.26,
+            nose: NoseShape::Ogive {
+                caliber_radius_head: 1.5,
+            },
+            cap: None,
+            material: MaterialId::new(STEEL_4340),
+            filler: Some(Filler {
+                diameter: 0.05,
+                length: 0.12,
+                base_plug: 0.03,
+                material: MaterialId::new(TNT_INERT),
+            }),
         }
     }
 
@@ -129,6 +175,23 @@ impl ApbcProjectile {
                 cap.wall_thickness,
                 &(f64::MIN_POSITIVE..=self.caliber / 2.0),
                 "positive and at most half the caliber",
+            )?;
+        }
+        if let Some(filler) = &self.filler {
+            if !(filler.diameter > 0.0 && filler.diameter < self.caliber) {
+                return Err(InvalidParameter {
+                    field: "filler.diameter",
+                    value: filler.diameter,
+                    requirement: "positive and smaller than the caliber",
+                });
+            }
+            validation::positive("filler.length", filler.length)?;
+            validation::non_negative("filler.base_plug", filler.base_plug)?;
+            validation::within(
+                "filler.length",
+                filler.length,
+                &(f64::MIN_POSITIVE..=self.body_length - filler.base_plug),
+                "short enough for the cavity and the base plug to fit in the body",
             )?;
         }
         Ok(())
@@ -229,6 +292,15 @@ impl Projectile {
         }
     }
 
+    /// Bursting charge, if the projectile has one.
+    #[must_use]
+    pub fn filler(&self) -> Option<&Filler> {
+        match self {
+            Self::Apbc(shot) => shot.filler.as_ref(),
+            Self::Apfsds(_) => None,
+        }
+    }
+
     /// Largest diameter of the penetrating body, in metres.
     #[must_use]
     pub fn diameter(&self) -> f64 {
@@ -299,6 +371,28 @@ mod tests {
         shot.cap.as_mut().expect("preset has a cap").wall_thickness = 0.05;
         let error = shot.validate().unwrap_err();
         assert_eq!(error.field, "cap.wall_thickness");
+    }
+
+    #[test]
+    fn shell_with_a_charge_is_valid_and_its_cavity_must_fit() {
+        let shell = ApbcProjectile::aphe_152mm();
+        assert_eq!(shell.validate(), Ok(()));
+        assert!(Projectile::Apbc(shell.clone()).filler().is_some());
+
+        let field = |change: &dyn Fn(&mut super::Filler)| {
+            let mut shell = shell.clone();
+            change(shell.filler.as_mut().expect("the preset has a charge"));
+            shell.validate().unwrap_err().field
+        };
+        assert_eq!(field(&|filler| filler.diameter = 0.152), "filler.diameter");
+        assert_eq!(field(&|filler| filler.diameter = 0.0), "filler.diameter");
+        assert_eq!(field(&|filler| filler.length = 0.0), "filler.length");
+        assert_eq!(
+            field(&|filler| filler.base_plug = -0.01),
+            "filler.base_plug"
+        );
+        // 0.12 m of cavity and 0.15 m of plug do not fit in a 0.26 m body.
+        assert_eq!(field(&|filler| filler.base_plug = 0.15), "filler.length");
     }
 
     #[test]

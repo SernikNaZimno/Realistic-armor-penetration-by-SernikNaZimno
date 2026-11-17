@@ -29,6 +29,7 @@ fn every_example_is_listed_here() {
     assert_eq!(
         names,
         [
+            "aphe-turret-cheek.json",
             "capped-shot-domed-plate.json",
             "cast-dome.json",
             "cast-dome.stl",
@@ -114,4 +115,11 @@ fn cast_dome_reads_its_mesh_and_assembles_as_a_whole_solid_model() {
         above > armor / 4 && above < 3 * armor / 4,
         "{above} of {armor}"
     );
+}
+
+#[test]
+fn shell_against_a_turret_cheek_is_the_preset() {
+    let file = example("aphe-turret-cheek.json");
+    assert_eq!(file, rap_app::presets::aphe_against_cast_armor());
+    assert!(file.scenario.projectile.filler().is_some());
 }
