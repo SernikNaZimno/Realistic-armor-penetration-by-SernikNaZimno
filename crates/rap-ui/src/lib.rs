@@ -2,6 +2,7 @@
 
 mod app;
 mod editors;
+mod frames;
 mod materials;
 mod runner;
 mod view;

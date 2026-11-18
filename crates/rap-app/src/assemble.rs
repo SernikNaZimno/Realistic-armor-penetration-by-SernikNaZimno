@@ -406,6 +406,8 @@ struct Plan<'a> {
     above: f64,
     path_length: f64,
     exit_space: f64,
+    /// Free space beside the model, between it and the grid walls.
+    side_pad: f64,
     shot_line: f64,
     end_time: f64,
 }
@@ -429,13 +431,16 @@ impl<'a> Plan<'a> {
         let cell_size = radius / settings.cells_per_radius;
         let spacing = cell_size / f64::from(settings.particles_per_cell_edge);
         let wall = count_to_f64(WALL_CELLS) * cell_size;
-        let pad = PAD_CELLS * cell_size;
-        let side_pad = SIDE_PAD_CELLS * cell_size;
+        let margin = settings.margin_radii * radius;
+        let pad = PAD_CELLS * cell_size + margin;
+        let side_pad = SIDE_PAD_CELLS * cell_size + margin;
+        // The gap the projectile crosses before it can touch the armor.
+        let gap = STANDOFF_CELLS * cell_size + settings.standoff;
 
         let mut table = MaterialTable::default();
         let parts = Parts::new(projectile, &mut table, custom_materials)?;
         let stack = Stack::new(armor, &mut table, custom_materials)?;
-        let flight_time = STANDOFF_CELLS * cell_size / scenario.impact_speed;
+        let flight_time = gap / scenario.impact_speed;
         let detonation = detonation(projectile, &parts, &mut table, flight_time)?;
 
         let half_width = settings.armor_extent_radii * radius;
@@ -446,12 +451,12 @@ impl<'a> Plan<'a> {
 
         // Positions along the shot line.
         let length = round_up(parts.profile.length(), spacing);
-        let standoff = STANDOFF_CELLS * cell_size + radius * obliquity.tan() + protrusion;
+        let standoff = gap + radius * obliquity.tan() + protrusion;
         let reach_back = half_width * obliquity.sin() + protrusion;
         let armor_face = (wall + pad + length + standoff).max(wall + pad + reach_back);
         let reach_forward =
             path_length.max(stack.thickness * obliquity.cos() + reach_back) + recess;
-        let exit_space = (0.5 * length).max(MIN_EXIT_CELLS * cell_size);
+        let exit_space = (0.5 * length).max(MIN_EXIT_CELLS * cell_size) + margin;
 
         // Positions across the shot line.
         let (shot_line, below, above) = if kind == ModelKind::Axisymmetric {
@@ -491,19 +496,19 @@ impl<'a> Plan<'a> {
             above,
             path_length,
             exit_space,
+            side_pad,
             shot_line,
-            end_time: settings
-                .end_time
-                .unwrap_or(2.0 * (length + path_length) / scenario.impact_speed),
+            end_time: settings.end_time.unwrap_or(
+                (settings.standoff + 2.0 * (length + path_length)) / scenario.impact_speed,
+            ),
         })
     }
 
     /// `x` of the right end of the grid interior and `y` of its top.
     fn extent(&self) -> DVec2 {
-        let side_pad = SIDE_PAD_CELLS * self.cell_size;
         DVec2::new(
             self.armor_face + self.reach_forward + self.exit_space,
-            self.shot_line + self.above + side_pad,
+            self.shot_line + self.above + self.side_pad,
         )
     }
 
@@ -699,7 +704,7 @@ pub fn assemble_solid(
     let plan = Plan::new(scenario, settings, custom_materials, ModelKind::Solid)?;
     let extent = plan.extent();
     let symmetry_plane = count_to_f64(WALL_CELLS) * plan.cell_size;
-    let depth = symmetry_plane + plan.half_width + SIDE_PAD_CELLS * plan.cell_size;
+    let depth = symmetry_plane + plan.half_width + plan.side_pad;
     let grid = Grid3 {
         cells: [
             plan.cells_for(extent.x),

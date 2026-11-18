@@ -41,10 +41,20 @@ pub struct SimulationSettings {
     /// Half-width of the armor, measured from the shot line, in projectile
     /// radii.
     pub armor_extent_radii: f64,
+    /// Distance the projectile starts from the armor, in metres, on top of
+    /// the cell and a half that always separates them. The projectile only
+    /// flies across it, so it costs grid and time and changes nothing else;
+    /// it is there to watch the approach.
+    pub standoff: f64,
+    /// Free space added around the model on every open side, in projectile
+    /// radii, so that debris and fragments stay inside the grid, and in
+    /// view, for longer.
+    pub margin_radii: f64,
     /// Coulomb friction coefficient between projectile and armor.
     pub friction: f64,
     /// Simulated time, in seconds. If absent, twice the time the projectile
-    /// needs to travel its own length plus the armor along the shot line.
+    /// needs to travel the stand-off, its own length and the armor along
+    /// the shot line.
     pub end_time: Option<f64>,
     /// Number of snapshots written over the simulated time.
     pub snapshots: u32,
@@ -61,6 +71,8 @@ impl Default for SimulationSettings {
             cells_per_radius: 4.0,
             particles_per_cell_edge: 2,
             armor_extent_radii: 10.0,
+            standoff: 0.0,
+            margin_radii: 0.0,
             friction: 0.0,
             end_time: None,
             snapshots: 20,
@@ -93,6 +105,18 @@ impl SimulationSettings {
             self.armor_extent_radii,
             &(2.0..=100.0),
             "between 2 and 100",
+        )?;
+        validation::within(
+            "standoff",
+            self.standoff,
+            &(0.0..=10.0),
+            "between 0 and 10 m",
+        )?;
+        validation::within(
+            "margin_radii",
+            self.margin_radii,
+            &(0.0..=100.0),
+            "between 0 and 100",
         )?;
         validation::non_negative("friction", self.friction)?;
         if let Some(end_time) = self.end_time {
@@ -128,6 +152,16 @@ mod tests {
             ..SimulationSettings::default()
         };
         assert_eq!(instant.validate().unwrap_err().field, "end_time");
+        let behind = SimulationSettings {
+            standoff: -0.1,
+            ..SimulationSettings::default()
+        };
+        assert_eq!(behind.validate().unwrap_err().field, "standoff");
+        let shrunk = SimulationSettings {
+            margin_radii: -1.0,
+            ..SimulationSettings::default()
+        };
+        assert_eq!(shrunk.validate().unwrap_err().field, "margin_radii");
     }
 
     #[test]

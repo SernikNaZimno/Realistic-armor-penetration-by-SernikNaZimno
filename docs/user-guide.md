@@ -94,6 +94,20 @@ only this picture.
 
 *Colour by* selects what the colours show in either view.
 
+Under the progress bar is the time slider. Drag it to look at any earlier
+moment of the run, also while the run goes on; the numbers below it are
+those of the moment shown. At its right end the view follows the run
+again. The states it moves through take memory, about a gigabyte at most:
+for a large model every second one is dropped whenever that limit is
+reached, so the steps of the slider become coarser.
+
+**Seeing the fragments.** Material that leaves the grid is gone. To keep
+debris and fragments in view for longer, raise *Space around*: it adds
+free space on every open side of the model. The grid, and with it the
+memory and the time per step, grows accordingly. *Distance to armor* moves
+the starting point of the projectile away from the armor, to watch the
+approach; the projectile only flies across that distance.
+
 *New* loads an example, *Open…* and *Save as…* read and write scenario
 files, the same ones the command line uses.
 
@@ -259,8 +273,10 @@ Every field is optional.
 | `cells_per_radius` | 4 | grid cells across the projectile radius |
 | `particles_per_cell_edge` | 2 | particles along each edge of a cell |
 | `armor_extent_radii` | 10 | half-width of the armor, in projectile radii |
+| `standoff` | 0 | distance the projectile starts from the armor, in metres, on top of the cell and a half that always separates them; *Distance to armor* in the application |
+| `margin_radii` | 0 | free space added around the model on every open side, in projectile radii; *Space around* in the application |
 | `friction` | 0 | Coulomb friction between projectile and armor |
-| `end_time` | automatic | simulated time; by default twice the time the projectile needs to travel its own length plus the armor along the shot line |
+| `end_time` | automatic | simulated time; by default the time the projectile needs to cross the stand-off plus twice the time it needs to travel its own length and the armor along the shot line |
 | `snapshots` | 20 | number of snapshots written by the command line |
 | `backend` | `"cpu"` | `"cpu"` or `"gpu"` |
 | `oblique_model` | `"solid"` | `"solid"` or `"plane_strain"`; used only when the obliquity is not zero |

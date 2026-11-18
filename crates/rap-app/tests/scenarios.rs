@@ -691,3 +691,65 @@ fn a_fuze_needs_an_explosive_and_a_charge_without_one_stays_inert() {
     assert_eq!(assembly.model.config.detonation, None);
     assert_eq!(assembly.model.materials.len(), 3);
 }
+
+#[test]
+fn stand_off_moves_the_projectile_back_and_the_margin_widens_the_grid() {
+    let mut file = presets::aphe_against_cast_armor();
+    file.settings.cells_per_radius = 4.0;
+    plates(&mut file.scenario).obliquity = 0.0;
+    let build = |file: &rap_io::ScenarioFile| {
+        assemble(&file.scenario, &file.settings, &[]).expect("a valid scenario")
+    };
+    let tip = |assembly: &rap_app::Assembly| {
+        assembly
+            .model
+            .seeds
+            .iter()
+            .filter(|seed| seed.body == assembly.layout.projectile_body)
+            .map(|seed| seed.position.x)
+            .fold(f64::MIN, f64::max)
+    };
+    let close = build(&file);
+    let cell = close.layout.cell_size;
+    let radius = 0.076;
+
+    // 200 mm further away: the gap grows by that much, the charge goes off
+    // later by the time it takes to cross it, and the run lasts as much
+    // longer.
+    file.settings.standoff = 0.2;
+    let far = build(&file);
+    let gap = |assembly: &rap_app::Assembly| assembly.layout.armor_face - tip(assembly);
+    assert!((gap(&far) - gap(&close) - 0.2).abs() < cell);
+    let time = |assembly: &rap_app::Assembly| {
+        assembly
+            .model
+            .config
+            .detonation
+            .expect("the charge has a fuze")
+            .time
+    };
+    assert!((time(&far) - time(&close) - 0.2 / 810.0).abs() < 1e-12);
+    assert!((far.layout.end_time - close.layout.end_time - 0.2 / 810.0).abs() < 1e-12);
+    assert_eq!(far.model.seeds.len(), close.model.seeds.len());
+
+    // Three radii of free space on every open side: behind the projectile
+    // and past the armor along the shot line, and beyond the armor's edge.
+    file.settings.standoff = 0.0;
+    file.settings.margin_radii = 3.0;
+    let wide = build(&file);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "grids are far smaller than 2^52 cells"
+    )]
+    let grown =
+        |axis: usize| (wide.model.grid.cells[axis] - close.model.grid.cells[axis]) as f64 * cell;
+    assert!(
+        (grown(0) - 2.0 * 3.0 * radius).abs() <= 2.0 * cell,
+        "{}",
+        grown(0)
+    );
+    assert!((grown(1) - 3.0 * radius).abs() <= cell, "{}", grown(1));
+    assert!((wide.layout.armor_face - close.layout.armor_face - 3.0 * radius).abs() < cell);
+    assert_eq!(wide.model.seeds.len(), close.model.seeds.len());
+    assert_eq!(wide.model.validate(), Ok(()));
+}

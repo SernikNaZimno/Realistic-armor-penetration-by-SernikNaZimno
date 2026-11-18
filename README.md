@@ -355,6 +355,7 @@ cargo run -p rap-cli
 - M19 — time, depth and colour scale written on the pictures
 - M20 — cast armor steel
 - M21 — detonation of the bursting charge by a fuze
+- M22 — time slider, adjustable stand-off and free space around the model
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material

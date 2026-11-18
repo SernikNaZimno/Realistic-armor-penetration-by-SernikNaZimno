@@ -169,7 +169,10 @@ pub fn assemble_mesh(
     let mut table = MaterialTable::default();
     let parts = Parts::new(projectile, &mut table, custom_materials)?;
     let armor_material = table.index_of(&solid.material, custom_materials)?;
-    let flight_time = STANDOFF_CELLS * cell_size / scenario.impact_speed;
+    let margin = settings.margin_radii * radius;
+    // The gap the projectile crosses before it can touch the armor.
+    let gap = STANDOFF_CELLS * cell_size + settings.standoff;
+    let flight_time = gap / scenario.impact_speed;
     let detonation = super::detonation(projectile, &parts, &mut table, flight_time)?;
     let armor = PlacedArmor::new(
         solid,
@@ -182,18 +185,18 @@ pub fn assemble_mesh(
     // The projectile, in the frame of the shot.
     let length = round_up(parts.profile.length(), spacing);
     let radial_extent = round_up(radius, spacing);
-    let tip = armor.first_contact - STANDOFF_CELLS * cell_size;
+    let tip = armor.first_contact - gap;
     let projectile_lower = DVec3::new(tip - length, -radial_extent, -radial_extent);
     let projectile_upper = DVec3::new(tip, radial_extent, radial_extent);
 
     // From the frame of the shot to the grid.
     let wall = count_to_f64(WALL_CELLS) * cell_size;
-    let side_pad = SIDE_PAD_CELLS * cell_size;
-    let exit_space = (0.5 * length).max(MIN_EXIT_CELLS * cell_size);
+    let side_pad = SIDE_PAD_CELLS * cell_size + margin;
+    let exit_space = (0.5 * length).max(MIN_EXIT_CELLS * cell_size) + margin;
     let lower = armor.lower.min(projectile_lower);
     let upper = armor.upper.max(projectile_upper);
     let shift = DVec3::new(
-        wall + PAD_CELLS * cell_size,
+        wall + PAD_CELLS * cell_size + margin,
         wall + side_pad,
         wall + side_pad,
     ) - lower;
@@ -242,9 +245,9 @@ pub fn assemble_mesh(
         half: false,
         armor_face: shift.x,
         armor_back: shift.x + armor.back,
-        end_time: settings
-            .end_time
-            .unwrap_or(2.0 * (length + armor.back - tip) / scenario.impact_speed),
+        end_time: settings.end_time.unwrap_or(
+            (2.0 * (length + armor.back - tip) - settings.standoff) / scenario.impact_speed,
+        ),
         projectile_body: PROJECTILE_BODY,
         cap_body: parts.cap_body(),
         armor_body: parts.armor_body(),

@@ -655,6 +655,12 @@ pub(crate) fn settings(ui: &mut egui::Ui, settings: &mut SimulationSettings) -> 
                 " radii",
             )
         });
+        changed |= row(ui, "Distance to armor", |ui| {
+            millimetres(ui, &mut settings.standoff, 0.0..=10_000.0)
+        });
+        changed |= row(ui, "Space around", |ui| {
+            scaled(ui, &mut settings.margin_radii, 1.0, 0.0..=100.0, " radii")
+        });
         changed |= row(ui, "Friction", |ui| {
             scaled(ui, &mut settings.friction, 1.0, 0.0..=2.0, "")
         });

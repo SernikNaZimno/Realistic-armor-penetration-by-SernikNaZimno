@@ -9,8 +9,9 @@ use rap_app::{ModelKind, Simulation, presets};
 use rap_domain::{Backend, SimulationSettings};
 use rap_geometry::TriangleMesh;
 use rap_io::{IoError, ScenarioFile, stl};
-use rap_solver::{Particle, Symmetry};
+use rap_solver::Symmetry;
 
+use crate::frames::Frames;
 use crate::runner::{Runner, Snapshot, Update};
 use crate::view::{Camera, Field, Scene};
 use crate::view3d::{Camera3, Cloud, Surface};
@@ -19,6 +20,8 @@ use crate::{editors, materials, view, view3d, widgets};
 /// Number of progress reports over a run; also the number of animation
 /// frames at most.
 const SLICES: u32 = 240;
+/// Most memory the states kept for the time slider may take, in bytes.
+const FRAME_BUDGET: usize = 1 << 30;
 /// Margin around the model in the view, in cells.
 const VIEW_MARGIN_CELLS: f64 = 4.0;
 
@@ -65,10 +68,35 @@ enum RunState {
 /// A simulation that has been started.
 struct Run {
     runner: Runner,
-    particles: Vec<Particle>,
-    cloud: Option<Cloud>,
+    /// The states the time slider moves through.
+    frames: Frames,
+    /// Every state reported, for the curve of depth over time.
     history: Vec<ImpactSummary>,
     state: RunState,
+}
+
+/// The time slider: back and forth through the states kept. Returns the
+/// state the user picked, if they moved it.
+fn time_slider(ui: &mut egui::Ui, frames: &Frames) -> Option<usize> {
+    let last = frames.len() - 1;
+    if last == 0 {
+        return None;
+    }
+    let mut index = frames.shown();
+    let mut picked = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(40.0);
+        let slider = egui::Slider::new(&mut index, 0..=last).show_value(false);
+        let moved = ui
+            .add(slider)
+            .on_hover_text("Drag to look at an earlier moment; the right end follows the run")
+            .changed();
+        if moved {
+            picked = Some(index);
+        }
+        ui.label(if frames.follows() { "live" } else { "earlier" });
+    });
+    picked
 }
 
 /// State of the application window.
@@ -250,8 +278,14 @@ impl App {
         });
         self.run = Some(Run {
             runner,
-            particles: preview.simulation.particles().into_owned(),
-            cloud: preview.cloud.clone(),
+            frames: Frames::new(
+                Snapshot {
+                    particles: preview.simulation.particles().into_owned(),
+                    cloud: preview.cloud.clone(),
+                    summary: preview.simulation.summary(),
+                },
+                FRAME_BUDGET,
+            ),
             history: vec![preview.simulation.summary()],
             state: RunState::Running,
         });
@@ -287,9 +321,10 @@ impl App {
         };
         let surface = &mut self.surface;
         let mut accept = |snapshot: Snapshot| {
-            run.particles = snapshot.particles;
-            run.cloud = snapshot.cloud;
             run.history.push(snapshot.summary);
+            run.frames.push(snapshot);
+            // Dropping states may change the one shown, so the surface is
+            // rebuilt even while an earlier state is looked at.
             *surface = None;
         };
         for update in run.runner.poll() {
@@ -423,7 +458,7 @@ impl App {
     /// The model being shown as a cloud for the three-dimensional view.
     fn cloud(&self) -> Option<&Cloud> {
         match &self.run {
-            Some(run) => run.cloud.as_ref(),
+            Some(run) => run.frames.current().cloud.as_ref(),
             None => self.preview.as_ref().ok()?.cloud.as_ref(),
         }
     }
@@ -462,10 +497,12 @@ impl App {
         }
     }
 
-    fn results(&self, ui: &mut egui::Ui) {
+    /// Shows the results and returns the state the user picked on the time
+    /// slider, if they moved it.
+    fn results(&self, ui: &mut egui::Ui) -> Option<usize> {
         let Ok(preview) = &self.preview else {
             ui.weak("Fix the scenario to see the model.");
-            return;
+            return None;
         };
         let layout = preview.simulation.layout();
         egui::Grid::new("model").num_columns(2).show(ui, |ui| {
@@ -499,15 +536,14 @@ impl App {
 
         let Some(run) = &self.run else {
             ui.weak("Press Run to simulate.");
-            return;
+            return None;
         };
-        let Some(summary) = run.history.last() else {
-            return;
-        };
+        let latest = &run.frames.latest().summary;
+        let summary = &run.frames.current().summary;
         match &run.state {
             RunState::Running => ui.label("Running…"),
             RunState::Paused => ui.label("Paused"),
-            RunState::Finished => ui.strong(if summary.perforated {
+            RunState::Finished => ui.strong(if latest.perforated {
                 "Finished: armor perforated"
             } else {
                 "Finished: armor not perforated"
@@ -518,8 +554,10 @@ impl App {
             clippy::cast_possible_truncation,
             reason = "a fraction between 0 and 1"
         )]
-        let progress = (summary.time / layout.end_time) as f32;
+        let progress = (latest.time / layout.end_time) as f32;
         ui.add(egui::ProgressBar::new(progress).show_percentage());
+
+        let picked = time_slider(ui, &run.frames);
 
         egui::Grid::new("summary").num_columns(2).show(ui, |ui| {
             for (label, value) in [
@@ -561,6 +599,7 @@ impl App {
             .map(|summary| [summary.time * 1.0e6, summary.penetration_depth * 1.0e3])
             .collect();
         widgets::line_chart(ui, &depth, "Depth [mm] over time [µs]", 150.0);
+        picked
     }
 
     fn view(&mut self, ui: &mut egui::Ui) {
@@ -588,7 +627,7 @@ impl App {
         let particles = self
             .run
             .as_ref()
-            .map_or(&*initial, |run| run.particles.as_slice());
+            .map_or(&*initial, |run| run.frames.current().particles.as_slice());
         let layout = preview.simulation.layout();
         let scene = Scene {
             particles,
@@ -614,7 +653,13 @@ impl App {
             .default_width(260.0)
             .show(ctx, |ui| {
                 ui.heading("Results");
-                egui::ScrollArea::vertical().show(ui, |ui| self.results(ui));
+                let picked = egui::ScrollArea::vertical()
+                    .show(ui, |ui| self.results(ui))
+                    .inner;
+                if let (Some(index), Some(run)) = (picked, &mut self.run) {
+                    run.frames.show(index);
+                    self.surface = None;
+                }
             });
         egui::CentralPanel::default().show(ctx, |ui| self.view(ui));
     }
@@ -692,6 +737,23 @@ mod tests {
         assert!((summary.time - 4.0e-5).abs() < 1e-12);
         assert!(summary.penetration_depth > 0.0);
         frame(&mut app, &ctx);
+
+        // Back to the start with the time slider, and forward again.
+        let run = app.run.as_mut().expect("the run is kept");
+        assert!(run.frames.len() > 2 && run.frames.follows());
+        let last = run.frames.len() - 1;
+        run.frames.show(0);
+        assert!(run.frames.current().summary.time.abs() < f64::EPSILON);
+        assert!(run.frames.current().summary.penetration_depth.abs() < f64::EPSILON);
+        frame(&mut app, &ctx);
+        let run = app.run.as_mut().expect("the run is kept");
+        run.frames.show(last / 2);
+        let middle = run.frames.current().summary.time;
+        assert!(middle > 0.0 && middle < 4.0e-5);
+        frame(&mut app, &ctx);
+        let run = app.run.as_mut().expect("the run is kept");
+        run.frames.show(last);
+        assert!(run.frames.follows());
 
         app.reset();
         assert!(!app.has_run());
