@@ -21,7 +21,7 @@
     "armor": {
       "layers": [
         {
-          "material": "steel-4340",
+          "material": "cast-armor-steel",
           "thickness": 0.245,
           "gap_before": 0.0
         }

@@ -589,7 +589,7 @@ fn ceramic_faced_armor_runs_on_the_gpu_like_on_the_cpu() {
 
 #[test]
 fn shell_with_a_bursting_charge_has_its_mass_and_a_bonded_filler() {
-    use rap_domain::material_id::{SHELL_STEEL, TNT_INERT};
+    use rap_domain::material_id::{CAST_ARMOR_STEEL, SHELL_STEEL, TNT_INERT};
     let mut file = presets::aphe_against_cast_armor();
     file.settings.cells_per_radius = 8.0;
     file.settings.armor_extent_radii = 2.0;
@@ -603,7 +603,7 @@ fn shell_with_a_bursting_charge_has_its_mass_and_a_bonded_filler() {
         .iter()
         .map(|material| material.id.as_str())
         .collect();
-    assert_eq!(names, [SHELL_STEEL, TNT_INERT, STEEL_4340]);
+    assert_eq!(names, [SHELL_STEEL, TNT_INERT, CAST_ARMOR_STEEL]);
 
     // Volumes are per radian.
     let mass_of = |material: usize| -> f64 {

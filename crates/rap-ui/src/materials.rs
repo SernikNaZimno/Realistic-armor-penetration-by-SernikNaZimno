@@ -314,6 +314,7 @@ mod tests {
             [
                 "aluminium",
                 "steel-4340",
+                "cast-armor-steel",
                 "tungsten-heavy-alloy",
                 "alumina-99.5",
                 "shell-steel",

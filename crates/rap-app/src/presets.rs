@@ -1,6 +1,6 @@
 //! Ready-made scenarios to start from.
 
-use rap_domain::material_id::STEEL_4340;
+use rap_domain::material_id::{CAST_ARMOR_STEEL, STEEL_4340};
 use rap_domain::{
     ApbcProjectile, ApfsdsProjectile, Armor, ArmorLayer, MaterialId, Projectile, Scenario,
 };
@@ -42,13 +42,14 @@ pub fn apfsds_against_steel() -> ScenarioFile {
 /// leaning back 30° and turned 30° away from the shot, in radians.
 const COMPOUND_OBLIQUITY: f64 = 0.722_734_247_813_415_6;
 
-/// A 152 mm shell with a bursting charge striking 245 mm of steel at 810 m/s
+/// A 152 mm shell with a bursting charge striking 245 mm of cast steel at 810 m/s
 /// and a compound angle of 30° by 30°: the cheek of a heavy tank's cast
 /// turret, about 325 mm along the line of sight.
 #[must_use]
 pub fn aphe_against_cast_armor() -> ScenarioFile {
     let mut armor = steel_plate(0.245);
     armor.obliquity = COMPOUND_OBLIQUITY;
+    armor.layers[0].material = MaterialId::new(CAST_ARMOR_STEEL);
     let mut file = ScenarioFile::new(Scenario {
         projectile: Projectile::Apbc(ApbcProjectile::aphe_152mm()),
         armor: armor.into(),

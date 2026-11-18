@@ -6,8 +6,9 @@ Johnson–Cook strength and damage with a Mie–Grüneisen equation of state;
 ceramics follow the Johnson–Holmquist JH-2 model with a polynomial equation
 of state.
 
-Built-in materials: 4340 steel, hardened shell steel, tungsten heavy alloy,
-99.5 % alumina and inert TNT for the bursting charge of a shell.
+Built-in materials: 4340 steel, cast armor steel, hardened shell steel,
+tungsten heavy alloy, 99.5 % alumina and inert TNT for the bursting charge
+of a shell.
 
 Status: **M11 — everything on the GPU.** The armor can be an array of
 plates or a solid of any shape read from an STL file, and every kind of

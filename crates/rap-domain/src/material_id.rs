@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 /// Identifier of the built-in 4340 steel, also used as a rolled-armor surrogate.
 pub const STEEL_4340: &str = "steel-4340";
+/// Identifier of the built-in cast armor steel.
+pub const CAST_ARMOR_STEEL: &str = "cast-armor-steel";
 /// Identifier of the built-in tungsten heavy alloy.
 pub const TUNGSTEN_HEAVY_ALLOY: &str = "tungsten-heavy-alloy";
 
