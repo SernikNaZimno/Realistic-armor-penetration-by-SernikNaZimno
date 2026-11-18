@@ -543,6 +543,7 @@ impl MpmSolver3 {
         let gradient_scale = 4.0 / (cell_size * cell_size);
         let (fields, node_heat) = (&self.fields, &self.node_heat);
         let (materials, config) = (&self.materials, &self.config);
+        let time = self.time;
         self.particles.par_iter_mut().for_each(|particle| {
             let field = &fields[particle.body];
             let (old_velocity, old_gradient) = (particle.velocity, particle.velocity_gradient);
@@ -586,6 +587,14 @@ impl MpmSolver3 {
             particle.velocity = velocity;
             particle.velocity_gradient = gradient;
             particle.position += time_step * velocity;
+            if let Some(detonation) = config.detonation
+                && detonation.reaches(time, particle.material)
+            {
+                particle.material = detonation.products;
+                particle.specific_energy += detonation.energy;
+                particle.deviator = DMat3::ZERO;
+                particle.damage = 1.0;
+            }
             update_material(
                 particle,
                 &materials[particle.material],
@@ -640,6 +649,7 @@ mod tests {
         linear_viscosity: 0.0,
         quadratic_viscosity: 0.0,
         friction: 0.0,
+        detonation: None,
     };
 
     fn particle() -> Particle3 {

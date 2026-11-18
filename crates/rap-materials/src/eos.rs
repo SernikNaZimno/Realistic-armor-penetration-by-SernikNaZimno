@@ -147,11 +147,94 @@ impl EquationOfState for PolynomialEos {
     }
 }
 
+/// Jones–Wilkins–Lee equation of state of the products of a detonation.
+///
+/// With `V = ρ0/ρ` and the specific internal energy `e`, which includes the
+/// chemical energy the explosive released:
+///
+/// ```text
+/// p = A·(1 − ω/(R1·V))·exp(−R1·V) + B·(1 − ω/(R2·V))·exp(−R2·V) + ω·ρ·e
+/// ```
+///
+/// The two exponential terms matter while the products are dense; once
+/// they have expanded several times the last term remains, that of an
+/// ideal gas with `γ = 1 + ω`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Jwl {
+    /// Density of the unreacted explosive, `ρ0`, in kg/m³.
+    pub reference_density: f64,
+    /// Coefficient `A` of the first exponential term, in Pa.
+    pub a: f64,
+    /// Coefficient `B` of the second exponential term, in Pa.
+    pub b: f64,
+    /// Decay rate `R1` of the first term.
+    pub r1: f64,
+    /// Decay rate `R2` of the second term.
+    pub r2: f64,
+    /// Grüneisen coefficient `ω` of the expanded products.
+    pub omega: f64,
+}
+
+impl Jwl {
+    /// Checks the parameters.
+    ///
+    /// # Errors
+    /// Returns [`InvalidParameter`] naming the first invalid parameter.
+    pub fn validate(&self) -> Result<(), InvalidParameter> {
+        validation::positive("eos.reference_density", self.reference_density)?;
+        validation::non_negative("eos.a", self.a)?;
+        validation::non_negative("eos.b", self.b)?;
+        validation::positive("eos.r1", self.r1)?;
+        validation::positive("eos.r2", self.r2)?;
+        validation::positive("eos.omega", self.omega)
+    }
+
+    /// The part of the pressure that does not depend on the energy, and
+    /// its derivative with respect to the relative volume `V`.
+    fn cold_pressure(&self, volume: f64) -> (f64, f64) {
+        let term = |coefficient: f64, rate: f64| {
+            let decay = coefficient * (-rate * volume).exp();
+            let share = self.omega / (rate * volume);
+            (
+                decay * (1.0 - share),
+                decay * (share / volume - rate * (1.0 - share)),
+            )
+        };
+        let (first, second) = (term(self.a, self.r1), term(self.b, self.r2));
+        (first.0 + second.0, first.1 + second.1)
+    }
+}
+
+impl EquationOfState for Jwl {
+    fn reference_density(&self) -> f64 {
+        self.reference_density
+    }
+
+    fn pressure(&self, density: f64, specific_energy: f64) -> f64 {
+        let (cold, _) = self.cold_pressure(self.reference_density / density);
+        cold + self.omega * density * specific_energy
+    }
+
+    fn sound_speed(&self, density: f64, specific_energy: f64) -> f64 {
+        // c² = (∂p/∂ρ)_e + (p/ρ²)·(∂p/∂e)_ρ, with dV/dρ = −V/ρ.
+        let volume = self.reference_density / density;
+        let (cold, cold_derivative) = self.cold_pressure(volume);
+        let pressure = cold + self.omega * density * specific_energy;
+        let squared = -volume / density * cold_derivative
+            + self.omega * specific_energy
+            + self.omega * pressure / density;
+        squared.max(0.0).sqrt()
+    }
+}
+
 /// The built-in equations of state.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 #[serde(tag = "model", rename_all = "snake_case")]
 pub enum Eos {
+    /// See [`Jwl`].
+    Jwl(Jwl),
     /// See [`MieGruneisen`].
     MieGruneisen(MieGruneisen),
     /// See [`PolynomialEos`].
@@ -167,6 +250,7 @@ impl Eos {
         match self {
             Self::MieGruneisen(model) => model.validate(),
             Self::Polynomial(model) => model.validate(),
+            Self::Jwl(model) => model.validate(),
         }
     }
 }
@@ -176,6 +260,7 @@ impl EquationOfState for Eos {
         match self {
             Self::MieGruneisen(model) => model.reference_density(),
             Self::Polynomial(model) => model.reference_density(),
+            Self::Jwl(model) => model.reference_density(),
         }
     }
 
@@ -183,6 +268,7 @@ impl EquationOfState for Eos {
         match self {
             Self::MieGruneisen(model) => model.pressure(density, specific_energy),
             Self::Polynomial(model) => model.pressure(density, specific_energy),
+            Self::Jwl(model) => model.pressure(density, specific_energy),
         }
     }
 
@@ -190,6 +276,7 @@ impl EquationOfState for Eos {
         match self {
             Self::MieGruneisen(model) => model.sound_speed(density, specific_energy),
             Self::Polynomial(model) => model.sound_speed(density, specific_energy),
+            Self::Jwl(model) => model.sound_speed(density, specific_energy),
         }
     }
 }
@@ -198,8 +285,65 @@ impl EquationOfState for Eos {
 mod tests {
     use proptest::prelude::*;
 
-    use super::{MieGruneisen, PolynomialEos};
+    use super::{Jwl, MieGruneisen, PolynomialEos};
     use crate::EquationOfState;
+
+    /// Products of TNT.
+    const PRODUCTS: Jwl = Jwl {
+        reference_density: 1630.0,
+        a: 371.2e9,
+        b: 3.231e9,
+        r1: 4.15,
+        r2: 0.95,
+        omega: 0.30,
+    };
+
+    #[test]
+    fn products_at_the_density_of_the_explosive_are_at_several_gigapascals() {
+        // A·(1 − ω/R1)·e^(−R1) + B·(1 − ω/R2)·e^(−R2) + ω·E0, with the
+        // 7 GJ/m³ the explosive releases.
+        let energy = 7.0e9 / 1630.0;
+        let expected = 371.2e9 * (1.0 - 0.30 / 4.15) * (-4.15_f64).exp()
+            + 3.231e9 * (1.0 - 0.30 / 0.95) * (-0.95_f64).exp()
+            + 0.30 * 7.0e9;
+        let pressure = PRODUCTS.pressure(1630.0, energy);
+        assert!((pressure / expected - 1.0).abs() < 1e-12);
+        assert!(pressure > 8.0e9 && pressure < 9.0e9, "{pressure}");
+    }
+
+    #[test]
+    fn expanded_products_are_an_ideal_gas() {
+        // Ten times the volume: the exponential terms are gone.
+        let (density, energy) = (163.0, 2.0e6);
+        let pressure = PRODUCTS.pressure(density, energy);
+        assert!((pressure / (0.30 * density * energy) - 1.0).abs() < 0.02);
+        let speed = PRODUCTS.sound_speed(density, energy);
+        let ideal = (1.30 * pressure / density).sqrt();
+        assert!((speed / ideal - 1.0).abs() < 0.02, "{speed} vs {ideal}");
+    }
+
+    #[test]
+    fn sound_speed_of_products_matches_isentropic_finite_difference() {
+        for (density, energy) in [
+            (2000.0, 5.0e6),
+            (1630.0, 4.3e6),
+            (800.0, 3.0e6),
+            (100.0, 1.0e6),
+        ] {
+            // Along an isentrope de = p/ρ²·dρ.
+            let pressure = PRODUCTS.pressure(density, energy);
+            let step = 1.0e-5 * density;
+            let shift = pressure / density.powi(2) * step;
+            let above = PRODUCTS.pressure(density + step, energy + shift);
+            let below = PRODUCTS.pressure(density - step, energy - shift);
+            let expected = ((above - below) / (2.0 * step)).sqrt();
+            let speed = PRODUCTS.sound_speed(density, energy);
+            assert!(
+                (speed / expected - 1.0).abs() < 1e-6,
+                "{speed} vs {expected}"
+            );
+        }
+    }
 
     const STEEL: MieGruneisen = MieGruneisen {
         reference_density: 7830.0,

@@ -9,6 +9,7 @@
 //! counterparts.
 
 pub mod contact;
+pub mod detonation;
 pub mod fracture;
 pub mod model;
 pub mod particle;
@@ -18,6 +19,7 @@ use std::borrow::Cow;
 
 use thiserror::Error;
 
+pub use detonation::Detonation;
 pub use model::{
     Grid, MAX_BODIES, Model, ModelError, ParticleSeed, SolverConfig, Symmetry, WALL_CELLS, Wall,
     Walls,

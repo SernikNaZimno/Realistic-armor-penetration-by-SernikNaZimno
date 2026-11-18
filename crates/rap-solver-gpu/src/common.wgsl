@@ -19,6 +19,7 @@ const LOST: u32 = 2u;
 
 const EOS_MIE_GRUNEISEN: u32 = 0u;
 const EOS_POLYNOMIAL: u32 = 1u;
+const EOS_JWL: u32 = 2u;
 const STRENGTH_JOHNSON_COOK: u32 = 0u;
 const STRENGTH_JOHNSON_HOLMQUIST: u32 = 1u;
 const DAMAGE_JOHNSON_COOK: u32 = 0u;
@@ -41,11 +42,11 @@ struct Material {
     strength_model: u32,
     damage_model: u32,
     density: f32,
-    // Mie-Grüneisen equation of state.
+    // Mie-Grüneisen equation of state. For JWL these three hold A, B and ω.
     sound_speed: f32,
     hugoniot_slope: f32,
     gruneisen_gamma: f32,
-    // Polynomial equation of state.
+    // Polynomial equation of state. For JWL the first two hold R1 and R2.
     k1: f32,
     k2: f32,
     k3: f32,
@@ -90,6 +91,11 @@ struct Material {
     // Largest principal stress the material carries; huge if it has no such
     // limit.
     tensile_limit: f32,
+    // Time at which the material detonates, huge if it never does; the
+    // material it becomes and the specific energy it gains.
+    burn_time: f32,
+    burn_products: u32,
+    burn_energy: f32,
 }
 
 struct Clock {
@@ -166,8 +172,26 @@ fn cold_pressure(material: Material, mu: f32) -> vec2<f32> {
     return vec2<f32>(pressure, derivative);
 }
 
+// One exponential term of the JWL equation of state and its derivative
+// with respect to the relative volume.
+fn jwl_term(coefficient: f32, rate: f32, omega: f32, volume: f32) -> vec2<f32> {
+    let decay = coefficient * exp(-rate * volume);
+    let share = omega / (rate * volume);
+    return vec2<f32>(decay * (1.0 - share), decay * (share / volume - rate * (1.0 - share)));
+}
+
 // Pressure and bulk sound speed.
 fn eos_state(material: Material, density: f32, specific_energy: f32) -> vec2<f32> {
+    if material.eos_model == EOS_JWL {
+        let omega = material.gruneisen_gamma;
+        let volume = material.density / density;
+        let cold = jwl_term(material.sound_speed, material.k1, omega, volume)
+            + jwl_term(material.hugoniot_slope, material.k2, omega, volume);
+        let pressure = cold.x + omega * density * specific_energy;
+        let squared = -volume / density * cold.y + omega * specific_energy
+            + omega * pressure / density;
+        return vec2<f32>(pressure, sqrt(max(squared, 0.0)));
+    }
     let mu = density / material.density - 1.0;
     if material.eos_model == EOS_POLYNOMIAL {
         var pressure = material.k1 * mu;

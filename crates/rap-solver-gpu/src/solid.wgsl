@@ -505,6 +505,16 @@ fn particles_update(
     particle.gradient_z = gradient[2];
     particle.position += time_step * velocity;
 
+    // A charge whose time has come becomes its products; see
+    // `rap_solver::detonation`.
+    if clock.time >= materials[particle.material].burn_time {
+        particle.specific_energy += materials[particle.material].burn_energy;
+        particle.material = materials[particle.material].burn_products;
+        particle.deviator_normal = vec3<f32>(0.0);
+        particle.deviator_shear = vec3<f32>(0.0);
+        particle.damage = 1.0;
+    }
+
     // Constitutive update.
     let material = materials[particle.material];
     let transposed = transpose(gradient);

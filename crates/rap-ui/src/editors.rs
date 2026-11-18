@@ -2,7 +2,7 @@
 //! Each returns whether the user changed anything.
 
 use eframe::egui;
-use rap_domain::material_id::{STEEL_4340, TNT_INERT};
+use rap_domain::material_id::{STEEL_4340, TNT};
 use rap_domain::{
     ApbcProjectile, ApfsdsProjectile, Armor, ArmorLayer, Backend, BallisticCap, Filler, MaterialId,
     NoseShape, ObliqueModel, ProfilePoint, Projectile, Scenario, SimulationSettings, SolidArmor,
@@ -10,6 +10,9 @@ use rap_domain::{
 };
 
 use crate::widgets::{degrees, material_picker, millimetres, row, scaled};
+
+/// Fuze delay a newly fuzed charge starts with, in s.
+const DEFAULT_FUZE_DELAY: f64 = 1.0e-3;
 
 /// Kinds of projectile the editor can create.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,7 +153,7 @@ fn filler(ui: &mut egui::Ui, shot: &mut ApbcProjectile, materials: &[MaterialId]
     let mut changed = false;
     let mut fitted = shot.filler.is_some();
     changed |= row(ui, "Bursting charge", |ui| {
-        ui.checkbox(&mut fitted, "fitted (inert)").changed()
+        ui.checkbox(&mut fitted, "fitted").changed()
     });
     if fitted && shot.filler.is_none() {
         shot.filler = Some(Filler {
@@ -159,9 +162,10 @@ fn filler(ui: &mut egui::Ui, shot: &mut ApbcProjectile, materials: &[MaterialId]
             base_plug: 0.1 * shot.body_length,
             material: materials
                 .iter()
-                .find(|id| id.as_str() == TNT_INERT)
+                .find(|id| id.as_str() == TNT)
                 .cloned()
                 .unwrap_or_else(|| shot.material.clone()),
+            fuze_delay: None,
         });
     } else if !fitted {
         shot.filler = None;
@@ -178,6 +182,32 @@ fn filler(ui: &mut egui::Ui, shot: &mut ApbcProjectile, materials: &[MaterialId]
         });
         changed |= row(ui, "Charge material", |ui| {
             material_picker(ui, "filler material", &mut filler.material, materials)
+        });
+        changed |= row(ui, "Fuze", |ui| {
+            let mut fuzed = filler.fuze_delay.is_some();
+            let mut changed = ui
+                .checkbox(&mut fuzed, "detonates after")
+                .on_hover_text("Time from the first contact with the armor to the detonation; the charge must be an explosive")
+                .changed();
+            if changed {
+                filler.fuze_delay = fuzed.then_some(DEFAULT_FUZE_DELAY);
+            }
+            if let Some(delay) = &mut filler.fuze_delay {
+                let mut shown = *delay * 1.0e3;
+                let edited = ui
+                    .add(
+                        egui::DragValue::new(&mut shown)
+                            .speed(0.01)
+                            .range(0.0..=100.0)
+                            .suffix(" ms"),
+                    )
+                    .changed();
+                if edited {
+                    *delay = shown * 1.0e-3;
+                }
+                changed |= edited;
+            }
+            changed
         });
     }
     changed

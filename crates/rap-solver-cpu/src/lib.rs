@@ -343,6 +343,7 @@ impl MpmSolver {
         let minimum_radius = MIN_RADIUS_CELLS * cell_size;
         let (fields, node_heat) = (&self.fields, &self.node_heat);
         let (materials, config) = (&self.materials, &self.config);
+        let time = self.time;
         self.particles.par_iter_mut().for_each(|particle| {
             let field = &fields[particle.body];
             let (old_velocity, old_gradient) = (particle.velocity, particle.velocity_gradient);
@@ -401,6 +402,14 @@ impl MpmSolver {
                 hoop_rate,
                 work_hoop_rate,
             };
+            if let Some(detonation) = config.detonation
+                && detonation.reaches(time, particle.material)
+            {
+                particle.material = detonation.products;
+                particle.specific_energy += detonation.energy;
+                particle.deviator = Deviator::default();
+                particle.damage = 1.0;
+            }
             constitutive::update(
                 particle,
                 &materials[particle.material],

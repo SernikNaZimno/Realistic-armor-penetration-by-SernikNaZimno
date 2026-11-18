@@ -15,10 +15,10 @@ pub mod johnson_holmquist;
 pub mod library;
 pub mod material;
 
-pub use eos::{Eos, MieGruneisen, PolynomialEos};
+pub use eos::{Eos, Jwl, MieGruneisen, PolynomialEos};
 pub use johnson_cook::{JohnsonCookDamage, JohnsonCookStrength, RateTemperatureReference};
 pub use johnson_holmquist::{JohnsonHolmquistDamage, JohnsonHolmquistStrength};
-pub use material::{Damage, Material, Strength};
+pub use material::{Damage, Explosive, Material, Strength};
 
 /// Pressure response of a material to compression and heating.
 pub trait EquationOfState {

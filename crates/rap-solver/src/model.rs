@@ -1,5 +1,6 @@
 //! Description of a problem handed to a solver.
 
+use crate::detonation::Detonation;
 use glam::DVec2;
 use rap_domain::validation::{self, InvalidParameter};
 use rap_materials::Material;
@@ -110,6 +111,28 @@ pub struct SolverConfig {
     pub quadratic_viscosity: f64,
     /// Coulomb friction coefficient between different bodies in contact.
     pub friction: f64,
+    /// An explosive that goes off during the run, if any.
+    pub detonation: Option<Detonation>,
+}
+
+impl SolverConfig {
+    /// Checks the detonation against the number of materials of the model.
+    ///
+    /// # Errors
+    /// Returns [`ModelError`] if it names a material the model does not
+    /// have, turns a material into itself, or has an invalid time or energy.
+    pub fn validate_detonation(&self, materials: usize) -> Result<(), ModelError> {
+        let Some(detonation) = self.detonation else {
+            return Ok(());
+        };
+        validation::non_negative("config.detonation.time", detonation.time)?;
+        validation::positive("config.detonation.energy", detonation.energy)?;
+        let (charge, products) = (detonation.material, detonation.products);
+        if charge >= materials || products >= materials || charge == products {
+            return Err(ModelError::UnknownDetonationMaterial { charge, products });
+        }
+        Ok(())
+    }
 }
 
 impl Default for SolverConfig {
@@ -119,6 +142,7 @@ impl Default for SolverConfig {
             linear_viscosity: 0.2,
             quadratic_viscosity: 1.5,
             friction: 0.0,
+            detonation: None,
         }
     }
 }
@@ -169,6 +193,17 @@ pub enum ModelError {
     /// The grid is too small to hold the wall bands and an interior.
     #[error("grid of {0} x {1} cells is too small; each side needs at least {min} cells", min = 2 * WALL_CELLS + 1)]
     GridTooSmall(usize, usize),
+    /// The detonation names a material the model does not have, or turns
+    /// a material into itself.
+    #[error(
+        "the detonation turns material {charge} into material {products}, which is not possible in this model"
+    )]
+    UnknownDetonationMaterial {
+        /// Index of the charge.
+        charge: usize,
+        /// Index of the products.
+        products: usize,
+    },
     /// The model has no particles.
     #[error("model contains no particles")]
     NoParticles,
@@ -241,6 +276,7 @@ impl Model {
         for material in &self.materials {
             material.validate()?;
         }
+        self.config.validate_detonation(self.materials.len())?;
         if self.seeds.is_empty() {
             return Err(ModelError::NoParticles);
         }

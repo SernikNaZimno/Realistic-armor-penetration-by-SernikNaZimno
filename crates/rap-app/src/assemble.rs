@@ -28,8 +28,8 @@ use rap_geometry::{fill_box, fill_rectangle, nose};
 use rap_materials::{Material, library};
 use rap_solver::model::count_to_f64;
 use rap_solver::{
-    Grid, Grid3, Model, Model3, ParticleSeed, ParticleSeed3, SolverConfig, Symmetry, WALL_CELLS,
-    Wall, Walls, Walls3,
+    Detonation, Grid, Grid3, Model, Model3, ParticleSeed, ParticleSeed3, SolverConfig, Symmetry,
+    WALL_CELLS, Wall, Walls, Walls3,
 };
 
 use crate::AppError;
@@ -335,12 +335,42 @@ fn round_up(length: f64, spacing: f64) -> f64 {
     (length / spacing - 1.0e-9).ceil().max(0.0) * spacing
 }
 
-/// Default numerical parameters with the given contact `friction`.
-fn config(friction: f64) -> SolverConfig {
+/// Default numerical parameters with the given contact `friction` and
+/// the detonation of the charge, if it has one.
+fn config(friction: f64, detonation: Option<Detonation>) -> SolverConfig {
     SolverConfig {
         friction,
+        detonation,
         ..SolverConfig::default()
     }
+}
+
+/// The detonation of the charge of `projectile`, if it has a fuze: the
+/// fuze delay after the `flight_time` to the first contact. The products
+/// of the explosive are added to `table`.
+fn detonation(
+    projectile: &Projectile,
+    parts: &Parts,
+    table: &mut MaterialTable,
+    flight_time: f64,
+) -> Result<Option<Detonation>, AppError> {
+    let Some((filler, material)) = projectile.filler().zip(parts.filler_material) else {
+        return Ok(None);
+    };
+    let Some(delay) = filler.fuze_delay else {
+        return Ok(None);
+    };
+    let charge = &table.materials[material];
+    let (Some(explosive), Some(products)) = (charge.explosive, charge.products()) else {
+        return Err(AppError::InertCharge(filler.material.clone()));
+    };
+    table.materials.push(products);
+    Ok(Some(Detonation {
+        time: flight_time + delay,
+        material,
+        products: table.materials.len() - 1,
+        energy: explosive.energy,
+    }))
 }
 
 /// Everything about a scenario's layout that does not depend on the number
@@ -355,6 +385,7 @@ struct Plan<'a> {
     cell_size: f64,
     spacing: f64,
     friction: f64,
+    detonation: Option<Detonation>,
     /// Plate normal and in-plane direction, in the `x`–`y` plane.
     normal: DVec2,
     along_plate: DVec2,
@@ -404,6 +435,8 @@ impl<'a> Plan<'a> {
         let mut table = MaterialTable::default();
         let parts = Parts::new(projectile, &mut table, custom_materials)?;
         let stack = Stack::new(armor, &mut table, custom_materials)?;
+        let flight_time = STANDOFF_CELLS * cell_size / scenario.impact_speed;
+        let detonation = detonation(projectile, &parts, &mut table, flight_time)?;
 
         let half_width = settings.armor_extent_radii * radius;
         // How far a shaped face reaches towards the projectile and away.
@@ -444,6 +477,7 @@ impl<'a> Plan<'a> {
             cell_size,
             spacing,
             friction: settings.friction,
+            detonation,
             normal: DVec2::new(obliquity.cos(), obliquity.sin()),
             along_plate: DVec2::new(-obliquity.sin(), obliquity.cos()),
             half_width,
@@ -521,7 +555,7 @@ impl<'a> Plan<'a> {
     }
 
     fn config(&self) -> SolverConfig {
-        config(self.friction)
+        config(self.friction, self.detonation)
     }
 
     fn layout(&self, symmetry_plane: f64) -> Layout {

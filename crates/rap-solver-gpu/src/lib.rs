@@ -43,7 +43,7 @@ fn program(model: &Model) -> Result<Program, SolverError> {
         label: "flat.wgsl",
         source: source(),
         params: encode_params(model),
-        materials: encode_materials(&model.materials)?,
+        materials: encode_materials(&model.materials, model.config.detonation)?,
         particles: encode_particles(model),
         clock: Clock::starting_with(fastest_signal(model)),
         node_count: count(model.grid.node_count())?,

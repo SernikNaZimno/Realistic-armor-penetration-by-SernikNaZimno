@@ -468,6 +468,15 @@ fn particles_update(
     particle.gradient = vec4<f32>(column_x, column_y);
     particle.position += time_step * velocity;
 
+    // A charge whose time has come becomes its products; see
+    // `rap_solver::detonation`.
+    if clock.time >= materials[particle.material].burn_time {
+        particle.specific_energy += materials[particle.material].burn_energy;
+        particle.material = materials[particle.material].burn_products;
+        particle.deviator = vec3<f32>(0.0);
+        particle.damage = 1.0;
+    }
+
     // Constitutive update.
     let material = materials[particle.material];
     let l_xx = column_x.x;

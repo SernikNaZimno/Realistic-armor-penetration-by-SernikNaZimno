@@ -589,7 +589,7 @@ fn ceramic_faced_armor_runs_on_the_gpu_like_on_the_cpu() {
 
 #[test]
 fn shell_with_a_bursting_charge_has_its_mass_and_a_bonded_filler() {
-    use rap_domain::material_id::{CAST_ARMOR_STEEL, SHELL_STEEL, TNT_INERT};
+    use rap_domain::material_id::{CAST_ARMOR_STEEL, SHELL_STEEL, TNT};
     let mut file = presets::aphe_against_cast_armor();
     file.settings.cells_per_radius = 8.0;
     file.settings.armor_extent_radii = 2.0;
@@ -603,7 +603,24 @@ fn shell_with_a_bursting_charge_has_its_mass_and_a_bonded_filler() {
         .iter()
         .map(|material| material.id.as_str())
         .collect();
-    assert_eq!(names, [SHELL_STEEL, TNT_INERT, CAST_ARMOR_STEEL]);
+    assert_eq!(names, [SHELL_STEEL, TNT, CAST_ARMOR_STEEL, "tnt-products"]);
+
+    // The charge goes off a millisecond after the nose reaches the plate.
+    let detonation = model.config.detonation.expect("the charge has a fuze");
+    assert_eq!((detonation.material, detonation.products), (1, 3));
+    let tip = model
+        .seeds
+        .iter()
+        .filter(|seed| seed.body == layout.projectile_body)
+        .map(|seed| seed.position.x)
+        .fold(f64::MIN, f64::max);
+    let flight = (layout.armor_face - tip) / file.scenario.impact_speed;
+    assert!(
+        (detonation.time - 1.0e-3 - flight).abs() < 5.0e-6,
+        "{}",
+        detonation.time
+    );
+    assert!((detonation.energy / 4.29e6 - 1.0).abs() < 0.01);
 
     // Volumes are per radian.
     let mass_of = |material: usize| -> f64 {
@@ -651,4 +668,26 @@ fn shell_preset_is_a_solid_model_at_its_compound_angle() {
     // 245 mm at 30° by 30° is about 325 mm along the line of sight.
     let path = assembly.layout.armor_back - assembly.layout.armor_face;
     assert!((path - 0.3267).abs() < 1e-3, "{path}");
+}
+
+#[test]
+fn a_fuze_needs_an_explosive_and_a_charge_without_one_stays_inert() {
+    use rap_domain::material_id::TNT_INERT;
+    fn charge(file: &mut rap_io::ScenarioFile) -> &mut rap_domain::Filler {
+        let Projectile::Apbc(shot) = &mut file.scenario.projectile else {
+            panic!("the preset fires a full-caliber shell");
+        };
+        shot.filler.as_mut().expect("the preset has a charge")
+    }
+    let mut file = presets::aphe_against_cast_armor();
+    plates(&mut file.scenario).obliquity = 0.0;
+
+    charge(&mut file).material = MaterialId::new(TNT_INERT);
+    let error = assemble(&file.scenario, &file.settings, &[]).expect_err("an inert charge");
+    assert!(matches!(error, AppError::InertCharge(_)), "{error}");
+
+    charge(&mut file).fuze_delay = None;
+    let assembly = assemble(&file.scenario, &file.settings, &[]).expect("a valid scenario");
+    assert_eq!(assembly.model.config.detonation, None);
+    assert_eq!(assembly.model.materials.len(), 3);
 }

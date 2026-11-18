@@ -6,12 +6,12 @@
 
 use glam::{DMat2, DVec2};
 use rap_materials::{Damage, Eos, EquationOfState, Material, Strength, StrengthModel};
-use rap_solver::{Deviator, Model, Particle, SolverError, Symmetry, Wall};
+use rap_solver::{Detonation, Deviator, Model, Particle, SolverError, Symmetry, Wall};
 
 /// Words per `Particle` in the shader.
 pub(crate) const PARTICLE_WORDS: usize = 24;
 /// Words per `Material` in the shader.
-const MATERIAL_WORDS: usize = 45;
+const MATERIAL_WORDS: usize = 48;
 /// What the shader gets for a material without a tensile strength: a
 /// stress no material reaches.
 const NO_TENSILE_LIMIT: f64 = 1.0e30;
@@ -86,20 +86,39 @@ pub(crate) fn encode_params(model: &Model) -> Vec<u32> {
 /// # Errors
 /// Returns [`SolverError::Gpu`] for a material model the shader does not
 /// implement.
-pub(crate) fn encode_materials(materials: &[Material]) -> Result<Vec<u32>, SolverError> {
+pub(crate) fn encode_materials(
+    materials: &[Material],
+    detonation: Option<Detonation>,
+) -> Result<Vec<u32>, SolverError> {
     let mut words = Vec::with_capacity(materials.len() * MATERIAL_WORDS);
-    for material in materials {
+    for (index, material) in materials.iter().enumerate() {
         words.extend(encode_material(material)?);
+        // When the material detonates, what it becomes and the energy it
+        // gains.
+        match detonation.filter(|detonation| detonation.material == index) {
+            Some(detonation) => {
+                let products = u32::try_from(detonation.products)
+                    .map_err(|_| SolverError::Gpu("too many materials".to_owned()))?;
+                words.extend([bits(detonation.time), products, bits(detonation.energy)]);
+            }
+            None => words.extend([bits(NEVER), 0, bits(0.0)]),
+        }
     }
+    debug_assert_eq!(words.len(), materials.len() * MATERIAL_WORDS);
     Ok(words)
 }
 
 /// Model selectors of the shader's `Material`.
 const FIRST_MODEL: u32 = 0;
 const SECOND_MODEL: u32 = 1;
+const THIRD_MODEL: u32 = 2;
+/// Time of a detonation that does not happen, in s.
+const NEVER: f64 = 1.0e30;
 
 /// Parameters of the equation of state: selector, reference density, then
-/// the Mie-Grüneisen and the polynomial parameters.
+/// the Mie-Grüneisen and the polynomial parameters. The JWL parameters take
+/// the same places: `A`, `B` and `ω` those of Mie-Grüneisen, `R1` and `R2`
+/// the first two of the polynomial.
 fn encode_eos(eos: &Eos) -> Option<(u32, f64, [f64; 6])> {
     match eos {
         Eos::MieGruneisen(eos) => Some((
@@ -118,6 +137,11 @@ fn encode_eos(eos: &Eos) -> Option<(u32, f64, [f64; 6])> {
             SECOND_MODEL,
             eos.reference_density,
             [0.0, 0.0, 0.0, eos.k1, eos.k2, eos.k3],
+        )),
+        Eos::Jwl(eos) => Some((
+            THIRD_MODEL,
+            eos.reference_density,
+            [eos.a, eos.b, eos.omega, eos.r1, eos.r2, 0.0],
         )),
         _ => None,
     }
@@ -220,7 +244,6 @@ fn encode_material(material: &Material) -> Result<Vec<u32>, SolverError> {
             material.tensile_strength.unwrap_or(NO_TENSILE_LIMIT),
         ]);
     words.extend(reals.map(bits));
-    debug_assert_eq!(words.len(), MATERIAL_WORDS);
     Ok(words)
 }
 
@@ -412,14 +435,16 @@ mod tests {
         // `Params` is 80 bytes in WGSL.
         assert_eq!(encode_params(&model).len() * 4, 80);
         assert_eq!(
-            encode_materials(&model.materials).expect("supported").len(),
+            encode_materials(&model.materials, None)
+                .expect("supported")
+                .len(),
             2 * MATERIAL_WORDS
         );
         assert_eq!(encode_particles(&model).len(), 2 * PARTICLE_WORDS);
         assert_eq!(Clock::starting_with(1.0).encode().len(), CLOCK_WORDS);
         // `Particle` is 96 bytes and `Material` 180.
         assert_eq!(PARTICLE_WORDS * 4, 96);
-        assert_eq!(MATERIAL_WORDS * 4, 180);
+        assert_eq!(MATERIAL_WORDS * 4, 192);
     }
 
     #[test]
@@ -456,7 +481,7 @@ mod tests {
     #[test]
     fn materials_carry_their_model_and_only_its_parameters() {
         let materials = [library::steel_4340(), library::alumina()];
-        let words = encode_materials(&materials).expect("supported");
+        let words = encode_materials(&materials, None).expect("supported");
         let real = |word: u32| f64::from(f32::from_bits(word));
         let (steel, alumina) = words.split_at(MATERIAL_WORDS);
         // Selectors: equation of state, strength, damage.

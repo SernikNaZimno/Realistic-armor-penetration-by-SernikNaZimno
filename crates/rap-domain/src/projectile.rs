@@ -4,7 +4,7 @@ use std::f64::consts::FRAC_PI_2;
 
 use serde::{Deserialize, Serialize};
 
-use crate::material_id::{MaterialId, SHELL_STEEL, STEEL_4340, TNT_INERT, TUNGSTEN_HEAVY_ALLOY};
+use crate::material_id::{MaterialId, SHELL_STEEL, STEEL_4340, TNT, TUNGSTEN_HEAVY_ALLOY};
 use crate::validation::{self, InvalidParameter};
 
 /// Shape of the front of a body of revolution.
@@ -73,12 +73,16 @@ pub struct BallisticCap {
     pub material: MaterialId,
 }
 
+/// Fuze delay of the charge of [`ApbcProjectile::aphe_152mm`], in s: a
+/// round value for a delay-action base fuze, not that of a particular one.
+const APHE_FUZE_DELAY: f64 = 1.0e-3;
+
 /// Bursting charge in a cavity bored into the base of a full-caliber shot.
 ///
 /// The cavity is a cylinder on the axis, closed at the rear by a base plug
-/// of the body material. The charge is modelled as an inert solid bonded
-/// to the shell: it weakens the shell and changes its mass, but it does
-/// not detonate.
+/// of the body material. The charge is a solid bonded to the shell: it
+/// weakens the shell and changes its mass. With a fuze, and if its material
+/// is an explosive, it detonates a set time after the impact.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filler {
@@ -91,6 +95,10 @@ pub struct Filler {
     pub base_plug: f64,
     /// Material of the charge.
     pub material: MaterialId,
+    /// Time from the first contact with the armor to the detonation of the
+    /// charge, in s; `None` for a charge without a fuze, which stays inert.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fuze_delay: Option<f64>,
 }
 
 /// Armor-piercing full-caliber shot: a body with an optional ballistic cap
@@ -150,7 +158,8 @@ impl ApbcProjectile {
                 diameter: 0.05,
                 length: 0.12,
                 base_plug: 0.03,
-                material: MaterialId::new(TNT_INERT),
+                material: MaterialId::new(TNT),
+                fuze_delay: Some(APHE_FUZE_DELAY),
             }),
         }
     }
@@ -184,6 +193,9 @@ impl ApbcProjectile {
                     value: filler.diameter,
                     requirement: "positive and smaller than the caliber",
                 });
+            }
+            if let Some(delay) = filler.fuze_delay {
+                validation::non_negative("filler.fuze_delay", delay)?;
             }
             validation::positive("filler.length", filler.length)?;
             validation::non_negative("filler.base_plug", filler.base_plug)?;
@@ -386,6 +398,10 @@ mod tests {
         };
         assert_eq!(field(&|filler| filler.diameter = 0.152), "filler.diameter");
         assert_eq!(field(&|filler| filler.diameter = 0.0), "filler.diameter");
+        assert_eq!(
+            field(&|filler| filler.fuze_delay = Some(-1.0e-3)),
+            "filler.fuze_delay"
+        );
         assert_eq!(field(&|filler| filler.length = 0.0), "filler.length");
         assert_eq!(
             field(&|filler| filler.base_plug = -0.01),

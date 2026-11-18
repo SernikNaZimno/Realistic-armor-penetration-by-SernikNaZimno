@@ -186,6 +186,7 @@ mod tests {
         linear_viscosity: 0.0,
         quadratic_viscosity: 0.0,
         friction: 0.0,
+        detonation: None,
     };
 
     fn particle(material: &Material) -> Particle {

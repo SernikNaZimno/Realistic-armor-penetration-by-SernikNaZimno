@@ -121,6 +121,7 @@ impl Model3 {
         for material in &self.materials {
             material.validate()?;
         }
+        self.config.validate_detonation(self.materials.len())?;
         if self.seeds.is_empty() {
             return Err(ModelError::NoParticles);
         }

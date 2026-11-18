@@ -9,8 +9,8 @@ use glam::{DVec2, DVec3};
 use rap_geometry::{fill_box, fill_rectangle};
 use rap_materials::{Material, Strength, library};
 use rap_solver::{
-    Grid, Grid3, Model, Model3, Particle, Particle3, ParticleSeed, ParticleSeed3, Solver, Solver3,
-    SolverConfig, SolverError, Symmetry, Wall, Walls, Walls3,
+    Detonation, Grid, Grid3, Model, Model3, Particle, Particle3, ParticleSeed, ParticleSeed3,
+    Solver, Solver3, SolverConfig, SolverError, Symmetry, Wall, Walls, Walls3,
 };
 use rap_solver_cpu::{MpmSolver, MpmSolver3};
 use rap_solver_gpu::{GpuSolver, GpuSolver3};
@@ -427,4 +427,177 @@ fn ceramic_tile_struck_by_a_rod_matches_in_two_dimensions() {
     assert!((gpu_state.1 - cpu_state.1).abs() < 0.01);
     assert!((gpu_state.2 - cpu_state.2).abs() < 0.01);
     assert!(relative(gpu_state.3, cpu_state.3) < 0.03);
+}
+
+/// Steel, TNT and its products, and the detonation of the TNT at `time`.
+fn charge_materials(time: f64) -> (Vec<Material>, SolverConfig) {
+    let tnt = library::tnt();
+    let energy = tnt.explosive.expect("TNT is an explosive").energy;
+    let products = tnt.products().expect("TNT is an explosive");
+    let config = SolverConfig {
+        detonation: Some(Detonation {
+            time,
+            material: 1,
+            products: 2,
+            energy,
+        }),
+        ..SolverConfig::default()
+    };
+    (vec![library::steel_4340(), tnt, products], config)
+}
+
+#[test]
+fn charge_bursting_a_tube_matches_in_two_dimensions() {
+    // A slice of a long steel tube filled with TNT that goes off after
+    // 1 µs: the JWL products and the switch from charge to products.
+    let cell = 0.5e-3;
+    let spacing = cell / 2.0;
+    let grid = Grid {
+        cells: [12, 100],
+        cell_size: cell,
+    };
+    let (lower, upper) = grid.interior();
+    let axis = lower.y;
+    let ring = |from: f64, to: f64, material: usize| {
+        fill_rectangle(
+            DVec2::new(lower.x, axis + from),
+            DVec2::new(upper.x, axis + to),
+            spacing,
+        )
+        .into_iter()
+        .map(move |position| ParticleSeed {
+            position,
+            velocity: DVec2::ZERO,
+            volume: spacing * spacing * (position.y - axis),
+            material,
+            body: 0,
+        })
+    };
+    let (materials, config) = charge_materials(1.0e-6);
+    let model = Model {
+        grid,
+        symmetry: Symmetry::Axisymmetric,
+        walls: Walls {
+            left: Wall::Sliding,
+            right: Wall::Sliding,
+            bottom: Wall::Sliding,
+            top: Wall::Outflow,
+        },
+        config,
+        materials,
+        seeds: ring(0.0, 10.0e-3, 1)
+            .chain(ring(10.0e-3, 12.0e-3, 0))
+            .collect(),
+        initial_temperature: 294.0,
+    };
+    let Some(mut gpu) = on_gpu(GpuSolver::new(&model)) else {
+        return;
+    };
+    let mut cpu = MpmSolver::new(model).expect("the model is valid");
+    for solver in [&mut gpu as &mut dyn Solver, &mut cpu] {
+        solver
+            .run_until(0.9e-6)
+            .expect("the simulation stays valid");
+        assert!(solver.particles().iter().all(|p| p.material != 2));
+        solver
+            .run_until(8.0e-6)
+            .expect("the simulation stays valid");
+    }
+
+    let state = |solver: &dyn Solver| {
+        let particles = solver.particles();
+        assert!(particles.iter().all(|p| p.material != 1), "charge left");
+        let (mass, momentum, energy) =
+            particles
+                .iter()
+                .fold((0.0, 0.0, 0.0), |(mass, momentum, energy), particle| {
+                    let steel = if particle.material == 0 {
+                        particle.mass
+                    } else {
+                        0.0
+                    };
+                    (
+                        mass + steel,
+                        momentum + steel * particle.velocity.y,
+                        energy
+                            + particle.mass
+                                * (0.5 * particle.velocity.length_squared()
+                                    + particle.specific_energy),
+                    )
+                });
+        (momentum / mass, energy)
+    };
+    let (cpu_speed, cpu_energy) = state(&cpu);
+    let (gpu_speed, gpu_energy) = state(&gpu);
+    eprintln!(
+        "tube: speed {gpu_speed:.1} (CPU {cpu_speed:.1}), energy {gpu_energy:.5e} (CPU {cpu_energy:.5e})"
+    );
+    assert!(cpu_speed > 1000.0);
+    assert!(relative(gpu_speed, cpu_speed) < 0.01);
+    assert!(relative(gpu_energy, cpu_energy) < 0.01);
+}
+
+#[test]
+fn charge_bursting_a_box_matches_in_three_dimensions() {
+    let cell = 1.0e-3;
+    let spacing = cell / 2.0;
+    let grid = Grid3 {
+        cells: [40, 40, 40],
+        cell_size: cell,
+    };
+    let (lower, upper) = grid.interior();
+    let centre = 0.5 * (lower + upper);
+    let inside = |half: f64| move |point: DVec3| (point - centre).abs().max_element() < half;
+    let charge = inside(4.0e-3);
+    let part = |index: usize, keep: Box<dyn Fn(DVec3) -> bool>| {
+        block(
+            centre - DVec3::splat(7.0e-3),
+            centre + DVec3::splat(7.0e-3),
+            spacing,
+            DVec3::ZERO,
+            index,
+            keep,
+        )
+        .map(|seed| ParticleSeed3 { body: 0, ..seed })
+    };
+    let (materials, config) = charge_materials(1.0e-6);
+    let model = Model3 {
+        grid,
+        walls: Walls3::default(),
+        config,
+        materials,
+        seeds: part(1, Box::new(charge))
+            .chain(part(0, Box::new(move |point| !charge(point))))
+            .collect(),
+        initial_temperature: 294.0,
+    };
+    let Some((cpu, gpu)) = run_both(model, 5.0e-6) else {
+        return;
+    };
+
+    let state = |solver: &dyn Solver3| {
+        let particles = solver.particles();
+        assert!(particles.iter().all(|p| p.material != 1), "charge left");
+        let outward = mean(
+            &particles,
+            |particle| particle.material == 0,
+            |particle| {
+                particle
+                    .velocity
+                    .dot((particle.position - centre).normalize())
+            },
+        );
+        let (mass, momentum, energy) = totals(&particles);
+        (outward, energy, momentum.length() / mass)
+    };
+    let (cpu_speed, cpu_energy, _) = state(&cpu);
+    let (gpu_speed, gpu_energy, gpu_drift) = state(&gpu);
+    eprintln!(
+        "box: outward speed {gpu_speed:.1} (CPU {cpu_speed:.1}), energy {gpu_energy:.5e} \
+         (CPU {cpu_energy:.5e}), drift {gpu_drift:.2e}"
+    );
+    assert!(cpu_speed > 100.0);
+    assert!(relative(gpu_speed, cpu_speed) < 0.02);
+    assert!(relative(gpu_energy, cpu_energy) < 0.01);
+    assert!(gpu_drift < 1.0);
 }

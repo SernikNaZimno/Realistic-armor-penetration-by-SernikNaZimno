@@ -18,6 +18,9 @@ pub const SHELL_STEEL: &str = "shell-steel";
 /// Identifier of the built-in inert stand-in for a TNT bursting charge.
 pub const TNT_INERT: &str = "tnt-inert";
 
+/// Identifier of the built-in TNT, which a fuze can set off.
+pub const TNT: &str = "tnt";
+
 /// Key of a material in a material library.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]

@@ -318,7 +318,8 @@ mod tests {
                 "tungsten-heavy-alloy",
                 "alumina-99.5",
                 "shell-steel",
-                "tnt-inert"
+                "tnt-inert",
+                "tnt"
             ]
         );
     }

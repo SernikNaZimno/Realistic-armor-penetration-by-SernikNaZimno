@@ -25,6 +25,9 @@ pub enum AppError {
     /// defined alongside it.
     #[error("material `{0}` is not defined; run `rap materials` to list the built-in ones")]
     UnknownMaterial(MaterialId),
+    /// The charge has a fuze, but its material is not an explosive.
+    #[error("the charge has a fuze, but its material `{0}` is not an explosive")]
+    InertCharge(MaterialId),
     /// The requested resolution needs more grid nodes than is reasonable.
     #[error(
         "the grid would have {nodes} nodes, more than the limit of {limit}; lower \

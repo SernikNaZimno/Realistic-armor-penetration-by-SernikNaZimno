@@ -7,8 +7,8 @@ ceramics follow the Johnson–Holmquist JH-2 model with a polynomial equation
 of state.
 
 Built-in materials: 4340 steel, cast armor steel, hardened shell steel,
-tungsten heavy alloy, 99.5 % alumina and inert TNT for the bursting charge
-of a shell.
+tungsten heavy alloy, 99.5 % alumina and TNT for the bursting charge of a
+shell, inert or set off by a fuze (Jones–Wilkins–Lee products).
 
 Status: **M11 — everything on the GPU.** The armor can be an array of
 plates or a solid of any shape read from an STL file, and every kind of
@@ -275,7 +275,10 @@ for the design.
 - A material point fails completely the moment its tension passes the spall
   strength, so a rod that perforates a plate is reported as largely failed
   debris, and the mass counted behind the armor includes that debris.
-- The bursting charge of a shell is inert: it does not detonate.
+- The bursting charge of a shell goes off all at once, a set time after
+  the impact: there is no detonation wave and no initiation by shock, and
+  the products are followed only through their early expansion (see
+  [ADR 0008](docs/adr/0008-detonation-of-the-charge.md)).
 - Brittle fracture is local: a crack is one cell wide whatever the cell
   size, so the energy it takes depends on the grid.
 - The GPU solver is not reproducible to the last digit from run to run.
@@ -350,6 +353,8 @@ cargo run -p rap-cli
   number of particles on the GPU
 - M18 — brittle fracture at the rate of a running crack
 - M19 — time, depth and colour scale written on the pictures
+- M20 — cast armor steel
+- M21 — detonation of the bursting charge by a fuze
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material

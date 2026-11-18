@@ -9,13 +9,13 @@
 
 use rap_domain::MaterialId;
 use rap_domain::material_id::{
-    ALUMINA, CAST_ARMOR_STEEL, SHELL_STEEL, STEEL_4340, TNT_INERT, TUNGSTEN_HEAVY_ALLOY,
+    ALUMINA, CAST_ARMOR_STEEL, SHELL_STEEL, STEEL_4340, TNT, TNT_INERT, TUNGSTEN_HEAVY_ALLOY,
 };
 
-use crate::eos::{Eos, MieGruneisen, PolynomialEos};
+use crate::eos::{Eos, Jwl, MieGruneisen, PolynomialEos};
 use crate::johnson_cook::{JohnsonCookDamage, JohnsonCookStrength, RateTemperatureReference};
 use crate::johnson_holmquist::{JohnsonHolmquistDamage, JohnsonHolmquistStrength};
-use crate::material::{Damage, Material, Strength};
+use crate::material::{Damage, Explosive, Material, Strength};
 
 const ROOM_TEMPERATURE: f64 = 294.0;
 const TAYLOR_QUINNEY: f64 = 0.9;
@@ -56,6 +56,7 @@ pub fn steel_4340() -> Material {
         }),
         spall_strength: 3.5e9,
         tensile_strength: None,
+        explosive: None,
         specific_heat: 477.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -106,6 +107,7 @@ pub fn cast_armor_steel() -> Material {
         }),
         spall_strength: 2.5e9,
         tensile_strength: None,
+        explosive: None,
         specific_heat: 477.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -154,6 +156,7 @@ pub fn shell_steel() -> Material {
         }),
         spall_strength: 3.5e9,
         tensile_strength: Some(2.2e9),
+        explosive: None,
         specific_heat: 477.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -195,6 +198,7 @@ pub fn tungsten_heavy_alloy() -> Material {
         }),
         spall_strength: 2.0e9,
         tensile_strength: None,
+        explosive: None,
         specific_heat: 134.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -238,6 +242,7 @@ pub fn alumina() -> Material {
         }),
         spall_strength: tensile_strength,
         tensile_strength: None,
+        explosive: None,
         specific_heat: 880.0,
         taylor_quinney: TAYLOR_QUINNEY,
     }
@@ -284,8 +289,38 @@ pub fn tnt_inert() -> Material {
         }),
         spall_strength: 20.0e6,
         tensile_strength: None,
+        explosive: None,
         specific_heat: 1130.0,
         taylor_quinney: TAYLOR_QUINNEY,
+    }
+}
+
+/// Cast TNT that a fuze can set off: [`tnt_inert`] as a solid, and the
+/// products of its detonation.
+///
+/// The products follow the Jones–Wilkins–Lee constants commonly quoted for
+/// TNT of 1630 kg/m³ (detonation energy 7·10⁹ J/m³, detonation velocity
+/// 6930 m/s, Chapman–Jouguet pressure 21·10⁹ Pa). They are quoted from memory
+/// of the open literature and must be checked against a primary source
+/// before any quantitative use.
+#[must_use]
+pub fn tnt() -> Material {
+    let density = 1630.0;
+    Material {
+        id: MaterialId::new(TNT),
+        name: "TNT".to_owned(),
+        explosive: Some(Explosive {
+            energy: 7.0e9 / density,
+            products: Jwl {
+                reference_density: density,
+                a: 371.2e9,
+                b: 3.231e9,
+                r1: 4.15,
+                r2: 0.95,
+                omega: 0.30,
+            },
+        }),
+        ..tnt_inert()
     }
 }
 
@@ -299,6 +334,7 @@ pub fn builtin() -> Vec<Material> {
         alumina(),
         shell_steel(),
         tnt_inert(),
+        tnt(),
     ]
 }
 

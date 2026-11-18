@@ -169,6 +169,8 @@ pub fn assemble_mesh(
     let mut table = MaterialTable::default();
     let parts = Parts::new(projectile, &mut table, custom_materials)?;
     let armor_material = table.index_of(&solid.material, custom_materials)?;
+    let flight_time = STANDOFF_CELLS * cell_size / scenario.impact_speed;
+    let detonation = super::detonation(projectile, &parts, &mut table, flight_time)?;
     let armor = PlacedArmor::new(
         solid,
         mesh,
@@ -254,7 +256,7 @@ pub fn assemble_mesh(
             low: [Wall::Outflow; 3],
             high: [Wall::Outflow; 3],
         },
-        config: super::config(settings.friction),
+        config: super::config(settings.friction, detonation),
         materials: table.materials,
         seeds,
         initial_temperature: INITIAL_TEMPERATURE,

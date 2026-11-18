@@ -196,10 +196,17 @@ ignored.
 | `nose` | shape of the penetrating nose under the cap |
 | `cap` | `null`, or `length` (ahead of the shoulder of the nose, at least half the caliber), `wall_thickness` and `material` of the ballistic cap |
 | `material` | material identifier |
-| `filler` | optional; the bursting charge of an APHE shell: `diameter` and `length` of a cylindrical cavity on the axis, `base_plug`, the thickness of the body behind it, and `material` |
+| `filler` | optional; the bursting charge of an APHE shell: `diameter` and `length` of a cylindrical cavity on the axis, `base_plug`, the thickness of the body behind it, `material`, and optionally `fuze_delay`, the time in seconds from the first contact with the armor to the detonation |
 
-The charge is an inert solid bonded to the shell. It makes the shell
-lighter and weaker, as the real cavity does, but it does not detonate.
+The charge is a solid bonded to the shell. It makes the shell lighter and
+weaker, as the real cavity does. With a `fuze_delay`, and a material that
+is an explosive (the built-in `tnt`), the whole charge turns into its
+detonation products at that time and bursts what is left of the shell;
+without one it stays inert. A material is an explosive if it has an
+`explosive` entry with the `energy` released, in J/kg, and the `products`,
+the constants `reference_density`, `a`, `b`, `r1`, `r2` and `omega` of the
+Jones–Wilkins–Lee equation of state. The detonation is a simplification;
+see [ADR 0008](adr/0008-detonation-of-the-charge.md).
 
 `nose` is one of `{ "shape": "flat" }`, `{ "shape": "hemisphere" }`,
 `{ "shape": "cone", "half_angle_deg": … }` and
@@ -349,7 +356,8 @@ Treat the output as a physically grounded estimate, not a measurement.
 - The face shape of plates is the same on both sides of the shot line.
 - Armor from an STL file is one material throughout.
 - Contact acts about one grid cell before bodies touch.
-- A bursting charge is inert: it does not detonate, and there is no fuze.
+- A bursting charge goes off all at once when its fuze delay has passed;
+  it is not set off by shock, and there is no detonation wave.
 - Explosive reactive armor, sabots and the flight of the projectile are
   not modelled.
 
