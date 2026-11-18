@@ -155,6 +155,17 @@ per radius of the example file the result is only indicative.
 The section is along the shot line; the last frame is
 [here](docs/images/shell-oblique-end.png).
 
+That run used 4340 steel for the plate and an inert charge. With the cast
+armor steel and the fuzed TNT charge the example now has, at 8 cells per
+radius, the shell reaches 210 mm before its charge goes off 1 ms after the
+impact, and 226 mm of the 327 mm by 1.6 ms; the plate is still not
+perforated. The detonation bursts the rear of the shell, which until then
+was whole: the failed part of the shell rises from 40 % to 81 %. The same
+shot against 4340 steel reached 169 mm, so the softer cast steel lets the
+shell about a quarter deeper. Before and 130 µs after the detonation:
+
+![The rear of the shell before and after its charge goes off](docs/images/shell-burst.png)
+
 ## Ceramics
 
 In JH-2 the strength of a ceramic rises with pressure and falls from an
