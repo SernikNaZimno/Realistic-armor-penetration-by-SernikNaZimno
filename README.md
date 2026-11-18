@@ -139,13 +139,20 @@ verdict depends on how much of the shell must emerge, and how fast, to
 count as perforation.
 
 Against 245 mm at a compound angle of 30° by 30°
-([aphe-turret-cheek.json](docs/examples/aphe-turret-cheek.json)), at 8
-cells per radius, the shell gouges the plate, breaks at the nose (half of
-it failed after 1.2 ms, the rear staying whole) and does not get through;
-it reaches 169 mm along the shot line, part of that by sliding down the
-face. How a brittle shell breaks is described in
-[ADR 0007](docs/adr/0007-brittle-fracture.md). At the 4 cells per radius
-of the example file the result is only indicative.
+([aphe-turret-cheek.json](docs/examples/aphe-turret-cheek.json)) the shell
+gouges the plate, breaks at the nose and is turned down the face; it does
+not get through. At 12 cells per radius (2.33 million particles, 1.3 ms,
+74 minutes on an integrated Radeon) it reaches 172 mm of the 327 mm along
+the shot line, part of that by sliding down the face, and 43 % of the
+shell has failed, the rear with the filler cavity staying whole. At 8
+cells per radius it reaches 169 mm. How a brittle shell breaks is
+described in [ADR 0007](docs/adr/0007-brittle-fracture.md). At the 4 cells
+per radius of the example file the result is only indicative.
+
+![The shell against 245 mm at a compound angle](docs/images/shell-oblique.gif)
+
+The section is along the shot line; the last frame is
+[here](docs/images/shell-oblique-end.png).
 
 ## Ceramics
 
