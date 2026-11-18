@@ -289,7 +289,18 @@ fn run(
         }
         if let Some(pictures) = &options.pictures {
             let path = directory.join(format!("picture_{index:04}.png"));
-            if let Some(range) = pictures::save(&simulation, pictures, &mut framing, &path)? {
+            let caption = [
+                format!("t = {:.0} µs", summary.time * 1.0e6),
+                format!("depth {:.1} mm", summary.penetration_depth * 1.0e3),
+                format!(
+                    "failed: projectile {:.0} %, armor {:.1} %",
+                    summary.projectile_failed_fraction * 100.0,
+                    summary.armor_failed_fraction * 100.0
+                ),
+            ];
+            let caption = caption.each_ref().map(String::as_str);
+            let saved = pictures::save(&simulation, pictures, &mut framing, &caption, &path)?;
+            if let Some(range) = saved {
                 frames.push(json!({
                     "file": path.file_name().map(|name| name.to_string_lossy()),
                     "time": summary.time,

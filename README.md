@@ -348,6 +348,7 @@ cargo run -p rap-cli
 - M17 — brittle fracture by the largest principal stress; no limit on the
   number of particles on the GPU
 - M18 — brittle fracture at the rate of a running crack
+- M19 — time, depth and colour scale written on the pictures
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material

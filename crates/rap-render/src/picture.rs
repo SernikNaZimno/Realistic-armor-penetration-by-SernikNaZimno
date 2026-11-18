@@ -179,6 +179,22 @@ impl Image {
         ]
     }
 
+    /// Fills the rectangle of `width` by `height` pixels whose top left
+    /// corner is `x` from the left and `y` from the top with `colour`. The
+    /// part of it outside the picture is left out.
+    pub fn fill(&mut self, x: usize, y: usize, width: usize, height: usize, colour: Rgb) {
+        let right = x.saturating_add(width).min(self.width);
+        let bottom = y.saturating_add(height).min(self.height);
+        if x >= right {
+            return;
+        }
+        let row = colour.repeat(right - x);
+        for y in y..bottom {
+            let start = 3 * (x + y * self.width);
+            self.pixels[start..start + row.len()].copy_from_slice(&row);
+        }
+    }
+
     /// Paints `sprites` over the picture, in their order.
     pub fn paint(&mut self, sprites: &Sprites) {
         for sprite in &sprites.items {

@@ -9,10 +9,14 @@ use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use glam::Vec3;
 use rap_app::Simulation;
-use rap_render::{Camera, Field, Image, Rgb, Surface};
+use rap_render::{Camera, Field, Image, Rgb, Surface, text};
 
 /// Background of the pictures.
 const BACKGROUND: Rgb = [255, 255, 255];
+/// Colour of the lettering.
+const INK: Rgb = [40, 40, 40];
+/// Picture height for each pixel of a dot of the lettering.
+const HEIGHT_PER_DOT: usize = 360;
 /// Most points of the cloud made of an axisymmetric model.
 const CLOUD_BUDGET: usize = 4_000_000;
 /// Largest picture edge accepted, in pixels.
@@ -124,7 +128,9 @@ impl PictureOptions {
 pub(crate) struct Framing(Option<(Vec3, Vec3)>);
 
 /// Writes the picture of the current state of `simulation` to `path` and
-/// returns the range of values its colours span. The first picture sets
+/// returns the range of values its colours span. The lines of `caption`
+/// are written in its top left corner, and the scale of the colours, if
+/// they show a quantity, in the bottom left. The first picture sets
 /// `framing` for those that follow. Returns `None`, and writes nothing, for
 /// a model in plane strain.
 ///
@@ -134,6 +140,7 @@ pub(crate) fn save(
     simulation: &Simulation,
     options: &PictureOptions,
     framing: &mut Framing,
+    caption: &[&str],
     path: &Path,
 ) -> Result<Option<(f64, f64)>> {
     let Some(cloud) = rap_app::picture::cloud(simulation, CLOUD_BUDGET) else {
@@ -141,7 +148,7 @@ pub(crate) fn save(
     };
     let mut surface = Surface::extract(&cloud, options.section);
     surface.bounds = *framing.0.get_or_insert(surface.bounds);
-    let image = Image::of(
+    let mut image = Image::of(
         &surface,
         options.field,
         &options.camera,
@@ -149,8 +156,14 @@ pub(crate) fn save(
         options.size.1,
         BACKGROUND,
     );
+    let range = surface.range(options.field);
+    let dot = (options.size.1 / HEIGHT_PER_DOT).max(1);
+    text::caption(&mut image, caption, dot, INK);
+    if options.field != Field::Material {
+        text::colour_scale(&mut image, options.field.label(), range, dot, INK);
+    }
     fs::write(path, image.to_png()?).with_context(|| format!("cannot write {}", path.display()))?;
-    Ok(Some(surface.range(options.field)))
+    Ok(Some(range))
 }
 
 #[cfg(test)]

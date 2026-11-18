@@ -125,7 +125,11 @@ whether the armor was perforated. Options of `run`:
 | `--whole` | draw the whole model in the pictures instead of cutting it along the shot line |
 
 The pictures are drawn like the three-dimensional view of the desktop
-application and keep the framing of the first one. For a film, set
+application and keep the framing of the first one. Each carries the time,
+the depth reached and the failed fractions in its top left corner, and,
+when the colours show a quantity, their scale in the bottom left; the
+scale spans the values of that picture, so it changes from frame to
+frame. For a film, set
 `snapshots` in the scenario to the number of frames, add `--no-snapshots`
 to leave out the large particle files, and join the pictures with a tool
 such as ffmpeg:
