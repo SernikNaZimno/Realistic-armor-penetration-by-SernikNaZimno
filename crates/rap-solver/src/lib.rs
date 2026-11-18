@@ -9,6 +9,7 @@
 //! counterparts.
 
 pub mod contact;
+pub mod fracture;
 pub mod model;
 pub mod particle;
 pub mod solid;

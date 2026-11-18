@@ -110,10 +110,11 @@ pub struct Material {
     pub damage: Damage,
     /// Tensile pressure at which the material fails by spallation, in Pa.
     pub spall_strength: f64,
-    /// Largest principal stress the material carries before it breaks, in
-    /// Pa; `None` for a material that only fails in the other ways. This is
-    /// how a hard, brittle material cracks under bending or tension while
-    /// it has hardly deformed.
+    /// Largest principal stress the material carries before it starts to
+    /// break, in Pa; `None` for a material that only fails in the other
+    /// ways. This is how a hard, brittle material cracks under bending or
+    /// tension while it has hardly deformed. Above it, damage grows at the
+    /// rate at which a crack would cross a grid cell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tensile_strength: Option<f64>,
     /// Specific heat capacity, in J/(kg·K).

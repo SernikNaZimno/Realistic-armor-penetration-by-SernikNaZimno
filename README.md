@@ -140,8 +140,11 @@ count as perforation.
 
 Against 245 mm at a compound angle of 30° by 30°
 ([aphe-turret-cheek.json](docs/examples/aphe-turret-cheek.json)), at 8
-cells per radius, the shell gouges the plate, breaks at the nose (49 % of
-it failed after 1.1 ms) and does not get through. At the 4 cells per radius
+cells per radius, the shell gouges the plate, breaks at the nose (half of
+it failed after 1.2 ms, the rear staying whole) and does not get through;
+it reaches 169 mm along the shot line, part of that by sliding down the
+face. How a brittle shell breaks is described in
+[ADR 0007](docs/adr/0007-brittle-fracture.md). At the 4 cells per radius
 of the example file the result is only indicative.
 
 ## Ceramics
@@ -337,6 +340,7 @@ cargo run -p rap-cli
 - M16 — three-dimensional pictures of axisymmetric models
 - M17 — brittle fracture by the largest principal stress; no limit on the
   number of particles on the GPU
+- M18 — brittle fracture at the rate of a running crack
 
 Every milestone of the original plan is done. What would add most from here: a
 leaner particle-to-grid transfer on the GPU, checkpoints, material

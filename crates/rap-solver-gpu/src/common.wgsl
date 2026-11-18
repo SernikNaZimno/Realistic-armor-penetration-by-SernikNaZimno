@@ -24,6 +24,9 @@ const STRENGTH_JOHNSON_HOLMQUIST: u32 = 1u;
 const DAMAGE_JOHNSON_COOK: u32 = 0u;
 const DAMAGE_JOHNSON_HOLMQUIST: u32 = 1u;
 
+// Speed of a running crack as a fraction of the longitudinal wave speed.
+const CRACK_SPEED_FRACTION: f32 = 0.2;
+
 // How much further apart than touching, in cells, the centres of two
 // bodies may be and still count as in contact.
 const CONTACT_MARGIN: f32 = 0.02;
@@ -279,9 +282,18 @@ fn close_point(
 ) -> bool {
     let state = eos_state(material, density, (*point).specific_energy);
     var pressure = state.x;
-    if pressure < -material.spall_strength
-        || largest_deviator - pressure > material.tensile_limit
-    {
+    // A brittle material above its tensile strength is damaged at the
+    // rate at which a crack would cross a cell; see `rap_solver::fracture`.
+    // The wave speed is still that of the previous step.
+    let overstress = (largest_deviator - pressure) / material.tensile_limit - 1.0;
+    if overstress > 0.0 {
+        (*point).damage = min(
+            (*point).damage + CRACK_SPEED_FRACTION * (*point).sound_speed * clock.time_step
+                / params.cell_size * overstress,
+            1.0,
+        );
+    }
+    if pressure < -material.spall_strength {
         (*point).damage = 1.0;
     }
     let failed = (*point).damage >= 1.0;

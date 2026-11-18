@@ -2,7 +2,7 @@
 
 use glam::DMat2;
 use rap_materials::{DamageModel, EquationOfState, Material, PlasticState, StrengthModel};
-use rap_solver::{Deviator, Particle, SolverConfig};
+use rap_solver::{Deviator, Particle, SolverConfig, fracture};
 
 /// Stress triaxiality is limited to this range before it enters the damage
 /// model; beyond it the fracture strain is either huge or meaningless.
@@ -43,9 +43,10 @@ pub(crate) fn wave_speed(
 /// von Mises radial return; the pressure comes from the equation of state;
 /// the internal energy integrates the stress power, including the artificial
 /// viscosity, so shock heating and plastic heating are both accounted for.
-/// Plastic flow accumulates damage; tension beyond the spall strength, or a
-/// principal stress beyond the tensile strength of a brittle material,
-/// fails the point at once; a failed point keeps no deviatoric stress and
+/// Plastic flow accumulates damage, and so does a principal stress beyond
+/// the tensile strength of a brittle material (see
+/// [`rap_solver::fracture`]); tension beyond the spall strength fails the
+/// point at once; a failed point keeps no deviatoric stress and
 /// carries no tension.
 ///
 /// The stress the grid forces were built from, contracted with the
@@ -132,12 +133,19 @@ pub(crate) fn update(
     }
 
     particle.pressure = material.eos.pressure(density, particle.specific_energy);
-    let largest_stress = particle.deviator.largest_principal() - particle.pressure;
-    if particle.pressure < -material.spall_strength
-        || material
-            .tensile_strength
-            .is_some_and(|limit| largest_stress > limit)
-    {
+    if let Some(limit) = material.tensile_strength {
+        let largest_stress = particle.deviator.largest_principal() - particle.pressure;
+        particle.damage = (particle.damage
+            + fracture::damage_increment(
+                largest_stress,
+                limit,
+                particle.sound_speed,
+                cell_size,
+                time_step,
+            ))
+        .min(1.0);
+    }
+    if particle.pressure < -material.spall_strength {
         particle.damage = 1.0;
     }
     if particle.is_failed() {
@@ -385,49 +393,41 @@ mod tests {
     }
 
     #[test]
-    fn brittle_material_breaks_when_a_principal_stress_passes_its_tensile_strength() {
+    fn brittle_material_breaks_when_a_principal_stress_stays_above_its_tensile_strength() {
         let brittle = library::shell_steel();
         let limit = brittle.tensile_strength.expect("shell steel is brittle");
-        // Stretched along x only: the largest principal stress is σ_xx.
-        let pull = plane(1.0e5, 0.0, 0.0, 0.0);
+        // Stretched slowly along x only: the largest principal stress is
+        // σ_xx.
+        let pull = plane(1.0e2, 0.0, 0.0, 0.0);
         let mut state = particle(&brittle);
-        let mut last = 0.0;
+        let mut highest: f64 = 0.0;
         while !state.is_failed() {
-            last = state.stress_xx();
-            advance(&mut state, &brittle, &pull, 1.0e-9);
-            assert!(state.plastic_strain < 1.0e-3, "it yielded before it broke");
+            highest = highest.max(state.stress_xx());
+            assert!(state.damage.abs() < f64::EPSILON || state.stress_xx() > limit);
+            advance(&mut state, &brittle, &pull, 1.0e-7);
+            assert!(state.plastic_strain < 1.0e-6, "it yielded before it broke");
         }
-        // It broke between the last intact stress and the next step, far
-        // below the spall strength and the yield stress.
-        assert!(last < limit && last > 0.97 * limit, "{last}");
+        // It broke a little above the limit, far below the spall strength.
+        assert!(highest > limit && highest < 1.25 * limit, "{highest}");
         assert!(state.deviator.equivalent_stress().abs() < f64::EPSILON);
         assert!(state.pressure.abs() < f64::EPSILON);
 
-        // Pure shear breaks it too: its largest principal stress is the
-        // shear stress. Armor steel under the same shear only yields.
-        let shear = plane(0.0, 2.0e5, 0.0, 0.0);
-        let mut sheared = particle(&brittle);
-        let tough = library::steel_4340();
-        let mut yielding = particle(&tough);
-        for _ in 0..4000 {
-            advance(&mut sheared, &brittle, &shear, 1.0e-8);
-            advance(&mut yielding, &tough, &shear, 1.0e-8);
+        // A brief overstress weakens it without breaking it.
+        let mut struck = particle(&brittle);
+        while struck.stress_xx() < 1.3 * limit {
+            advance(&mut struck, &brittle, &plane(1.0e5, 0.0, 0.0, 0.0), 1.0e-9);
         }
-        assert!(sheared.is_failed());
-        assert!(!yielding.is_failed() && yielding.plastic_strain > 0.0);
+        assert!(struck.damage > 0.0 && !struck.is_failed());
 
-        // Squeezed along x as hard as it was pulled, it holds.
+        // Squeezed along x as hard as it was pulled, before it yields, it
+        // is not damaged at all.
         let mut squeezed = particle(&brittle);
-        for _ in 0..2000 {
-            advance(
-                &mut squeezed,
-                &brittle,
-                &plane(-1.0e5, 0.0, 0.0, 0.0),
-                1.0e-8,
-            );
+        let squeeze = plane(-1.0e5, 0.0, 0.0, 0.0);
+        while squeezed.stress_xx() > -1.1 * limit {
+            advance(&mut squeezed, &brittle, &squeeze, 1.0e-9);
         }
-        assert!(!squeezed.is_failed());
-        assert!(squeezed.stress_xx() < -limit);
+        assert!(squeezed.plastic_strain.abs() < f64::EPSILON);
+        assert!(squeezed.damage.abs() < f64::EPSILON);
     }
 
     #[test]

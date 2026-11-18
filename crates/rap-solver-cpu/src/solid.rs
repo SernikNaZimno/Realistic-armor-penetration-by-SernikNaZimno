@@ -10,7 +10,8 @@ use rap_materials::{DamageModel, EquationOfState, Material, PlasticState, Streng
 use rap_solver::model::count_to_f64;
 use rap_solver::solid::{equivalent_stress, largest_principal};
 use rap_solver::{
-    Grid3, Model3, Particle3, Solver3, SolverConfig, SolverError, WALL_CELLS, Wall, Walls3, contact,
+    Grid3, Model3, Particle3, Solver3, SolverConfig, SolverError, WALL_CELLS, Wall, Walls3,
+    contact, fracture,
 };
 use rayon::prelude::*;
 
@@ -216,12 +217,19 @@ fn update_material(
     }
 
     particle.pressure = material.eos.pressure(density, particle.specific_energy);
-    let largest_stress = largest_principal(&particle.deviator) - particle.pressure;
-    if particle.pressure < -material.spall_strength
-        || material
-            .tensile_strength
-            .is_some_and(|limit| largest_stress > limit)
-    {
+    if let Some(limit) = material.tensile_strength {
+        let largest_stress = largest_principal(&particle.deviator) - particle.pressure;
+        particle.damage = (particle.damage
+            + fracture::damage_increment(
+                largest_stress,
+                limit,
+                particle.sound_speed,
+                cell_size,
+                time_step,
+            ))
+        .min(1.0);
+    }
+    if particle.pressure < -material.spall_strength {
         particle.damage = 1.0;
     }
     if particle.is_failed() {

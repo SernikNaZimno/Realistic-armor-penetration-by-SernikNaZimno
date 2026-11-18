@@ -259,7 +259,8 @@ Every field is optional.
 Each entry is a complete material: `id`, `name`, an equation of state
 `eos`, a `strength` model, a `damage` model, `spall_strength`,
 `specific_heat` and `taylor_quinney`, and optionally `tensile_strength`,
-the largest principal stress a brittle material carries before it cracks. A material whose `id` matches a
+the largest principal stress a brittle material carries before it starts
+to crack. A material whose `id` matches a
 built-in one replaces it. The easiest way to write one is to copy a
 built-in material in the desktop application, adjust it and save the
 scenario; the second example file contains the result for a steel.
